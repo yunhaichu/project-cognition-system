@@ -125,4 +125,4 @@ The eval intentionally does not discover or bulk-read historical transcripts.
 python .project_cognition/scripts/validate_state.py
 ```
 
-The recommended CI check set is Python compilation, schema validation, governance evals, and whitespace checks. These checks only use sanitized fixtures and do not scan real history directories.
+The recommended CI check set is Python compilation, schema validation, governance evals, and whitespace checks. These checks only use sanitized fixtures and do not scan real history directories. A GitHub Actions template is available at `docs/ci/github-actions.yml`; activating it requires committing the same file under `.github/workflows/ci.yml`.

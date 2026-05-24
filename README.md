@@ -108,7 +108,7 @@ eval 还会读取 `evals/golden/minimal_invariants.json`，用 golden invariants
 python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
 ```
 
-建议 CI 检查集为 `py_compile`、`validate_state.py`、`run_minimal_eval.py` 和 `git diff --check`。这些检查只使用脱敏 fixture，不扫描真实历史目录。
+建议 CI 检查集为 `py_compile`、`validate_state.py`、`run_minimal_eval.py` 和 `git diff --check`。这些检查只使用脱敏 fixture，不扫描真实历史目录。GitHub Actions 模板位于 `docs/ci/github-actions.yml`；复制到 `.github/workflows/ci.yml` 即可启用。
 
 ### Hook 模型
 
@@ -300,7 +300,7 @@ Optionally, pass one explicit real Codex/Hermes transcript for dogfood. The eval
 python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
 ```
 
-The recommended CI check set is `py_compile`, `validate_state.py`, `run_minimal_eval.py`, and `git diff --check`. These checks use only sanitized fixtures and do not scan real history directories.
+The recommended CI check set is `py_compile`, `validate_state.py`, `run_minimal_eval.py`, and `git diff --check`. These checks use only sanitized fixtures and do not scan real history directories. A GitHub Actions template lives at `docs/ci/github-actions.yml`; copy it to `.github/workflows/ci.yml` to enable it.
 
 ### Hook Model
 
