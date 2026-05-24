@@ -17,7 +17,7 @@ Tool calls are split into audit logs and formal evidence:
 - `logs/tool_calls/<session>.jsonl` stores the full tool call output for audit.
 - `raw/tool_evidence.jsonl` stores a normalized record with `evidence_kind`, `deterministic`, `outcome`, `source_log_id`, and a bounded `content_summary`.
 
-Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_result`, `web_result`, and `command_output`. Tool evidence can raise confidence above agent interpretation, but tool-only candidates remain below automatic `WORLD_STATE.md` inclusion unless accepted through review.
+Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_result`, `web_result`, and `command_output`. The scoring layer indexes `tool_evidence` directly. Deterministic test, git, and filesystem results score above agent interpretation. Web results and generic command output are weaker. Tool-only candidates remain below automatic `WORLD_STATE.md` inclusion unless accepted through review.
 
 ## Structured Cognition
 
@@ -40,6 +40,8 @@ Candidates keep a human-readable `claim`, but also carry a minimal structured ob
 
 The structured fields are intentionally small. They give conflict detection and review a stable handle without turning the MVP into a database or semantic platform.
 
+Conflict detection compares structured fields before falling back to keyword topics. Opposite modality for the same `subject / predicate / object / scope` is a conflict. Different scopes are kept separate, so a project-level prohibition does not automatically conflict with a global-user-level allowance.
+
 ## Conflict Lifecycle
 
 `detect_conflicts.py` records potential contradictions and blocks unresolved high-severity items. `resolve_conflict.py` adds the review path:
@@ -49,6 +51,15 @@ The structured fields are intentionally small. They give conflict detection and 
 - `mark-resolved`: record that a conflict was resolved externally.
 
 After resolution, rerun `score_candidates.py` and `build_world_state.py`.
+
+## World State Rendering
+
+`WORLD_STATE.md` has two layers:
+
+- bootstrap doctrine: fixed, short guardrails that keep the MVP stable and compact.
+- accepted structured cognition: reviewed cognition objects rendered as bounded bullets.
+
+The compact file remains doctrine-heavy by design. Full state can expose accepted structured cognition without pushing raw evidence or logs into the prompt.
 
 ## Why Not Just Memory?
 
@@ -69,3 +80,5 @@ Hooks should inject `WORLD_STATE_COMPACT.md` plus a compact user profile. Raw ev
 ## Eval
 
 `evals/run_minimal_eval.py` runs the pipeline in a temporary project copy and checks the core governance invariants: user evidence goes to raw, assistant output stays in logs, tool output becomes formal evidence, candidates are structured, tool-only candidates require review, and compact state remains small.
+
+It also checks five drift scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the loser, and accepted structured cognition rendering into `WORLD_STATE.md`.

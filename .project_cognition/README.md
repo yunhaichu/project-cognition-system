@@ -11,3 +11,5 @@ Key runtime files:
 - `logs/outputs/`: assistant final outputs; audit only, not core cognition.
 - `distilled/confidence_table.json`: scored candidates with structured fields.
 - `raw/conflicts.jsonl`: detected conflicts; use `scripts/resolve_conflict.py` for review.
+
+`WORLD_STATE.md` combines short bootstrap doctrine with accepted structured cognition. The compact file remains short and is the default hook payload.

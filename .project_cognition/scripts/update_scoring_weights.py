@@ -26,6 +26,8 @@ DEFAULT_WEIGHTS: dict[str, Any] = {
         "tool_test_result": 4.0,
         "tool_git_result": 3.0,
         "tool_filesystem_result": 3.0,
+        "tool_web_result": 1.0,
+        "tool_command_output": 0.5,
         "tool_deterministic": 3.0,
         "agent_interpretation": 1.0,
         "assistant_output": 0.5,

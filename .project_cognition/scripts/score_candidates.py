@@ -32,6 +32,8 @@ DEFAULT_SIGNAL_WEIGHTS = {
     "tool_test_result": 4.0,
     "tool_git_result": 3.0,
     "tool_filesystem_result": 3.0,
+    "tool_web_result": 1.0,
+    "tool_command_output": 0.5,
     "tool_deterministic": 3.0,
     "agent_interpretation": 1.0,
     "assistant_output": 0.5,
@@ -94,11 +96,13 @@ def score_item(
     has_user_evidence = False
     has_agent_evidence = False
     has_tool_evidence = False
+    evidence_types: set[str] = set()
 
     for evidence_id in item.get("evidence", []):
         utterance = utterances.get(evidence_id)
         if utterance:
             has_user_evidence = True
+            evidence_types.add("user_utterance")
             signals = utterance.get("signals", {})
             if signals.get("long_form"):
                 points += signal_weights["user_long_form"]
@@ -123,11 +127,13 @@ def score_item(
                 matched_signals.append("user_profile_or_project_scope")
         if evidence_id in interpretations:
             has_agent_evidence = True
+            evidence_types.add("agent_interpretation")
             points += signal_weights["agent_interpretation"]
             matched_signals.append("agent_interpretation")
         tool_record = tool_evidence.get(evidence_id)
         if tool_record:
             has_tool_evidence = True
+            evidence_types.add("tool_evidence")
             kind = str(tool_record.get("evidence_kind", "command_output"))
             points += signal_weights["tool_evidence"]
             matched_signals.append("tool_evidence")
@@ -140,6 +146,12 @@ def score_item(
             elif kind == "filesystem_result":
                 points += signal_weights["tool_filesystem_result"]
                 matched_signals.append("tool_filesystem_result")
+            elif kind == "web_result":
+                points += signal_weights["tool_web_result"]
+                matched_signals.append("tool_web_result")
+            elif kind == "command_output":
+                points += signal_weights["tool_command_output"]
+                matched_signals.append("tool_command_output")
             if tool_record.get("deterministic"):
                 points += signal_weights["tool_deterministic"]
                 matched_signals.append("tool_deterministic")
@@ -166,6 +178,8 @@ def score_item(
         confidence = min(89, confidence)
 
     item["confidence"] = confidence
+    item["evidence_types"] = sorted(evidence_types)
+    item["requires_review_for_world_state"] = bool(has_tool_evidence and not has_user_evidence and item.get("status") != "accepted")
     item["score_signals"] = sorted(set(matched_signals))
     item["include_in_world_state"] = confidence >= 90 and not any(conflict in unresolved_conflicts for conflict in item.get("conflicts", []))
     if confidence < 50:

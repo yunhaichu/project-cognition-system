@@ -88,6 +88,8 @@ python evals/run_minimal_eval.py
 
 评测会在临时项目副本中验证：用户原话进入 raw、assistant 输出只进 logs、工具结果进入 `raw/tool_evidence.jsonl`、候选认知带结构化字段、tool-only 候选默认需要审查后才能进入 `WORLD_STATE.md`。
 
+当前 eval 还覆盖五个治理场景：用户推翻 agent、工具结果推翻 agent、同一规则不同 scope 不冲突、冲突 resolve 后 loser 被 superseded、accepted structured cognition 被渲染进 `WORLD_STATE.md`。
+
 ### Hook 模型
 
 会话开始时：
@@ -112,6 +114,10 @@ python evals/run_minimal_eval.py
 - `raw/tool_evidence.jsonl`：归一化后的正式证据，区分测试结果、git 结果、文件系统结果、网页结果和普通命令输出。
 
 候选认知除了保留可读 `claim`，还会带一个最小结构化对象：`subject / predicate / object / scope / modality / valid_from / valid_until / source_refs / confidence_reason / supersedes`。
+
+评分层会单独索引 `tool_evidence`。测试结果、git 结果和文件系统结果作为确定性工具证据加权高于 agent interpretation；网页结果和普通命令输出权重较低。tool-only 候选即使置信较高，也默认需要 review 后才可进入核心世界状态。
+
+冲突检测优先比较 structured fields。相同 `subject / predicate / object / scope` 下相反 `modality` 会被视为冲突；scope 不同的规则默认不冲突。
 
 冲突默认只发现并阻断。人工裁决可使用：
 
@@ -246,6 +252,8 @@ python evals/run_minimal_eval.py
 
 The eval runs in a temporary project copy and checks that user utterances enter raw evidence, assistant output stays in logs, tool output is normalized into `raw/tool_evidence.jsonl`, candidates carry structured fields, and tool-only candidates require review before entering `WORLD_STATE.md`.
 
+The current eval also covers five governance scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the losing side, and accepted structured cognition rendering into `WORLD_STATE.md`.
+
 ### Hook Model
 
 At session start:
@@ -270,6 +278,10 @@ Tool calls are stored in two layers:
 - `raw/tool_evidence.jsonl`: normalized evidence, classified as test results, git results, filesystem results, web results, or generic command output.
 
 Cognition candidates keep a readable `claim` and a minimal structured object: `subject / predicate / object / scope / modality / valid_from / valid_until / source_refs / confidence_reason / supersedes`.
+
+The scoring layer indexes `tool_evidence` directly. Test results, git results, and filesystem results get stronger deterministic evidence weight than agent interpretation; web results and generic command output get lower weight. Tool-only candidates still require review before entering core world state.
+
+Conflict detection first compares structured fields. Opposite `modality` for the same `subject / predicate / object / scope` is treated as a conflict; rules with different scopes do not conflict by default.
 
 Conflict detection blocks conflicted cognition by default. Human review can resolve or defer conflicts:
 

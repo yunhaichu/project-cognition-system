@@ -103,6 +103,29 @@ def active_decisions() -> list[str]:
     return rows[:4]
 
 
+def structured_cognition_rows(items: list[dict[str, Any]], max_items: int = 6) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item.get("status") != "accepted" and item.get("source_type") not in {"manual_initialization", "bootstrap_rule"}:
+            continue
+        structured = item.get("structured") or {}
+        obj = clean_claim(str(structured.get("object") or item.get("claim", "")))
+        if not obj:
+            continue
+        scope = str(structured.get("scope") or "project")
+        modality = str(structured.get("modality") or "unknown")
+        subject = str(structured.get("subject") or item.get("category") or "cognition")
+        key = normalize_text("|".join([subject, scope, modality, obj]))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(f"[{scope}/{modality}] {subject}: {obj}")
+        if len(rows) >= max_items:
+            break
+    return rows
+
+
 def render_world_state(items: list[dict[str, Any]]) -> str:
     constraints = claims(items, "constraint", 8)
     risks = claims(items, "risk", 4)
@@ -122,6 +145,12 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
     ]
     if has_claim(items, "不能用模型反复读取历史|local_only|LLM"):
         key_constraints.append("post hook 默认 local-only，不调用 LLM 总结历史。")
+    structured_rows = structured_cognition_rows(items)
+    structured_layer = bullet_join(
+        structured_rows,
+        "暂无额外 accepted structured cognition；当前以 bootstrap doctrine 和高置信规则为准。",
+        6,
+    )
 
     return f"""# WORLD_STATE.md
 
@@ -136,6 +165,9 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
 
 ## 4. 稳定架构原则
 每个项目维护独立 `.project_cognition/`。`AGENTS.md` 只保留用户级全局入口，不在项目目录或 bootstrap 中创建。跨项目用户画像是 Agent 级全局文件：Codex 使用 `~/.codex/USER_PROFILE.md`，Hermes 使用 `~/.hermes/USER_PROFILE.md`。认知分层为 raw 事实、Agent 理解、策略、用户画像和日志；不同层级不能混用权重。
+
+结构化认知层：
+{structured_layer}
 
 ## 5. 不可违背事项
 {bullet_join(key_constraints, "不得把所有历史上下文直接塞给模型。", 5)}
@@ -183,6 +215,7 @@ def main() -> None:
         "generated_at": now_iso(),
         "included_cognition_ids": [item["id"] for item in items],
         "included_count": len(items),
+        "structured_count": len(structured_cognition_rows(items)),
         "characters": len(content),
         "compact_characters": len(compact_content),
     }

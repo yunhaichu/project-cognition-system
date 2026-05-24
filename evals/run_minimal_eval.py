@@ -19,6 +19,21 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n" for record in records), encoding="utf-8")
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
 def reset_state(project_root: Path) -> None:
     cognition_root = project_root / ".project_cognition"
     for path in [
@@ -47,6 +62,17 @@ def reset_state(project_root: Path) -> None:
         scoring_feedback.unlink()
 
 
+def make_project_copy(temp_dir: str) -> Path:
+    project_root = Path(temp_dir) / "project"
+    shutil.copytree(
+        REPO_ROOT / ".project_cognition",
+        project_root / ".project_cognition",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    reset_state(project_root)
+    return project_root
+
+
 def run_script(project_root: Path, script_name: str, args: list[str] | None = None) -> Any:
     command = [sys.executable, str(project_root / ".project_cognition" / "scripts" / script_name), *(args or [])]
     completed = subprocess.run(command, cwd=project_root, text=True, capture_output=True, check=False)
@@ -63,62 +89,272 @@ def run_script(project_root: Path, script_name: str, args: list[str] | None = No
         return stdout
 
 
-def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+def item(
+    item_id: str,
+    *,
+    claim: str,
+    source_type: str,
+    modality: str,
+    scope: str,
+    subject: str,
+    predicate: str,
+    object_value: str,
+    confidence: int = 95,
+    category: str = "constraint",
+    status: str = "accepted",
+) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "claim": claim,
+        "category": category,
+        "confidence": confidence,
+        "evidence": [f"ev_{item_id}"],
+        "conflicts": [],
+        "last_verified": "2026-05-24T00:00:00Z",
+        "stability": "stable",
+        "include_in_world_state": confidence >= 90,
+        "source_type": source_type,
+        "status": status,
+        "topics": [],
+        "structured": {
+            "subject": subject,
+            "predicate": predicate,
+            "object": object_value,
+            "scope": scope,
+            "modality": modality,
+            "valid_from": "2026-05-24T00:00:00Z",
+            "valid_until": None,
+            "source_refs": [f"ev_{item_id}"],
+            "confidence_reason": "Eval fixture.",
+            "supersedes": [],
+        },
+    }
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+def set_items(project_root: Path, items: list[dict[str, Any]]) -> None:
+    write_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json", {"items": items})
+    write_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl", [])
+
+
+def run_minimal_pipeline(project_root: Path) -> dict[str, Any]:
+    return {
+        "ingest": run_script(
+            project_root,
+            "ingest_session.py",
+            ["--input", str(CASE_FILE), "--session-id", "eval_minimal", "--source", "eval"],
+        ),
+        "extract": run_script(project_root, "extract_candidates.py"),
+        "score": run_script(project_root, "score_candidates.py"),
+        "conflicts": run_script(project_root, "detect_conflicts.py"),
+        "world_state": run_script(project_root, "build_world_state.py"),
+        "unresolved": run_script(project_root, "resolve_conflict.py", ["--list-unresolved"]),
+    }
+
+
+def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[str, bool]:
+    cognition_root = project_root / ".project_cognition"
+    table = read_json(cognition_root / "distilled" / "confidence_table.json")
+    items = table.get("items", [])
+    tool_evidence = read_jsonl(cognition_root / "raw" / "tool_evidence.jsonl")
+    assistant_outputs = read_jsonl(cognition_root / "logs" / "outputs" / "eval_minimal.jsonl")
+    compact_chars = len((cognition_root / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8"))
+    tool_items = [row for row in items if row.get("source_type") == "tool_evidence"]
+    return {
+        "user_utterance_ingested": steps["ingest"]["counts"]["user"] == 1,
+        "assistant_output_is_log": len(assistant_outputs) == 1,
+        "tool_evidence_ingested": len(tool_evidence) == 1 and tool_evidence[0].get("evidence_kind") == "test_result",
+        "tool_evidence_scored_explicitly": bool(tool_items)
+        and all("tool_evidence" in row.get("score_signals", []) for row in tool_items),
+        "candidates_have_structured_fields": bool(items) and all("structured" in row for row in items),
+        "tool_only_candidate_requires_review_for_world_state": bool(tool_items)
+        and all(row.get("requires_review_for_world_state") and not row.get("include_in_world_state") for row in tool_items),
+        "compact_state_under_1600_chars": compact_chars <= 1600,
+    }
+
+
+def check_user_overrides_agent(project_root: Path) -> dict[str, bool]:
+    user = item(
+        "user_rule",
+        claim="用户要求 assistant 输出只能进入日志，不能进入核心事实。",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+    )
+    agent = item(
+        "agent_bad",
+        claim="Agent 推断 assistant 输出可以进入核心事实。",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=74,
+        status="candidate",
+    )
+    set_items(project_root, [user, agent])
+    result = run_script(project_root, "detect_conflicts.py")
+    conflicts = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")
+    return {
+        "conflict_detected": result["new_conflicts"] == 1,
+        "user_side_preferred": bool(conflicts) and conflicts[0].get("chosen_side") == "user_rule",
+    }
+
+
+def check_tool_overrides_agent(project_root: Path) -> dict[str, bool]:
+    tool = item(
+        "tool_failed_tests",
+        claim="工具结果显示测试失败。",
+        source_type="tool_evidence",
+        modality="is_not",
+        scope="test",
+        subject="test_result",
+        predicate="passed",
+        object_value="pytest suite",
+        confidence=89,
+        status="candidate",
+    )
+    agent = item(
+        "agent_tests_pass",
+        claim="Agent 推断测试已经通过。",
+        source_type="agent_interpretation",
+        modality="is",
+        scope="test",
+        subject="test_result",
+        predicate="passed",
+        object_value="pytest suite",
+        confidence=74,
+        status="candidate",
+    )
+    set_items(project_root, [tool, agent])
+    result = run_script(project_root, "detect_conflicts.py")
+    conflicts = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")
+    return {
+        "conflict_detected": result["new_conflicts"] == 1,
+        "tool_side_preferred": bool(conflicts) and conflicts[0].get("chosen_side") == "tool_failed_tests",
+    }
+
+
+def check_scope_separation(project_root: Path) -> dict[str, bool]:
+    project_rule = item(
+        "project_no_agents",
+        claim="项目目录不得创建 AGENTS.md。",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="AGENTS.md",
+        predicate="create",
+        object_value="AGENTS.md",
+    )
+    global_rule = item(
+        "global_agents",
+        claim="用户级全局目录可以保留 AGENTS.md。",
+        source_type="user_utterance",
+        modality="may",
+        scope="user_global",
+        subject="AGENTS.md",
+        predicate="create",
+        object_value="AGENTS.md",
+    )
+    set_items(project_root, [project_rule, global_rule])
+    result = run_script(project_root, "detect_conflicts.py")
+    return {"different_scope_not_conflict": result["new_conflicts"] == 0}
+
+
+def check_resolve_supersedes_loser(project_root: Path) -> dict[str, bool]:
+    old_rule = item(
+        "old_rule",
+        claim="旧规则：可以把 assistant 输出进入核心记忆。",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=74,
+        status="candidate",
+    )
+    new_rule = item(
+        "new_rule",
+        claim="新规则：assistant 输出只能进入日志。",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+    )
+    set_items(project_root, [old_rule, new_rule])
+    run_script(project_root, "detect_conflicts.py")
+    conflicts = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")
+    if not conflicts:
+        return {"conflict_detected": False, "loser_superseded": False, "winner_kept": False}
+    run_script(
+        project_root,
+        "resolve_conflict.py",
+        ["--conflict-id", conflicts[0]["id"], "--action", "choose-b", "--reason", "User rule supersedes older agent inference."],
+    )
+    run_script(project_root, "build_world_state.py")
+    items = {row["id"]: row for row in read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])}
+    return {
+        "conflict_detected": True,
+        "loser_superseded": items["old_rule"].get("status") == "superseded" and not items["old_rule"].get("include_in_world_state"),
+        "winner_kept": items["new_rule"].get("include_in_world_state")
+        and "old_rule" in items["new_rule"].get("structured", {}).get("supersedes", []),
+    }
+
+
+def check_world_state_structured_layer(project_root: Path) -> dict[str, bool]:
+    accepted = item(
+        "accepted_structured",
+        claim="Accepted structured cognition should render into WORLD_STATE.",
+        source_type="proposed_update",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="render",
+        object_value="accepted structured cognition layer",
+    )
+    set_items(project_root, [accepted])
+    result = run_script(project_root, "build_world_state.py")
+    world_state = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    return {
+        "structured_count_reported": result.get("structured_count") == 1,
+        "structured_layer_rendered": "accepted structured cognition layer" in world_state,
+    }
 
 
 def run_eval() -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="pcs_eval_") as temp_dir:
-        project_root = Path(temp_dir) / "project"
-        shutil.copytree(
-            REPO_ROOT / ".project_cognition",
-            project_root / ".project_cognition",
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
-        reset_state(project_root)
+        project_root = make_project_copy(temp_dir)
+        steps = run_minimal_pipeline(project_root)
+        checks = check_minimal_pipeline(project_root, steps)
 
-        steps = {
-            "ingest": run_script(
-                project_root,
-                "ingest_session.py",
-                ["--input", str(CASE_FILE), "--session-id", "eval_minimal", "--source", "eval"],
-            ),
-            "extract": run_script(project_root, "extract_candidates.py"),
-            "score": run_script(project_root, "score_candidates.py"),
-            "conflicts": run_script(project_root, "detect_conflicts.py"),
-            "world_state": run_script(project_root, "build_world_state.py"),
-            "unresolved": run_script(project_root, "resolve_conflict.py", ["--list-unresolved"]),
-        }
+    scenario_checks: dict[str, dict[str, bool]] = {}
+    for name, check_fn in [
+        ("user_overrides_agent", check_user_overrides_agent),
+        ("tool_overrides_agent", check_tool_overrides_agent),
+        ("scope_separation", check_scope_separation),
+        ("resolve_supersedes_loser", check_resolve_supersedes_loser),
+        ("world_state_structured_layer", check_world_state_structured_layer),
+    ]:
+        with tempfile.TemporaryDirectory(prefix=f"pcs_eval_{name}_") as temp_dir:
+            project_root = make_project_copy(temp_dir)
+            scenario_checks[name] = check_fn(project_root)
 
-        cognition_root = project_root / ".project_cognition"
-        table = read_json(cognition_root / "distilled" / "confidence_table.json")
-        items = table.get("items", [])
-        tool_evidence = read_jsonl(cognition_root / "raw" / "tool_evidence.jsonl")
-        assistant_outputs = read_jsonl(cognition_root / "logs" / "outputs" / "eval_minimal.jsonl")
-        compact_chars = len((cognition_root / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8"))
-        tool_items = [item for item in items if item.get("source_type") == "tool_evidence"]
-
-        checks = {
-            "user_utterance_ingested": steps["ingest"]["counts"]["user"] == 1,
-            "assistant_output_is_log": len(assistant_outputs) == 1,
-            "tool_evidence_ingested": len(tool_evidence) == 1 and tool_evidence[0].get("evidence_kind") == "test_result",
-            "candidates_have_structured_fields": bool(items) and all("structured" in item for item in items),
-            "tool_only_candidate_requires_review_for_world_state": bool(tool_items)
-            and all(not item.get("include_in_world_state") for item in tool_items),
-            "compact_state_under_1600_chars": compact_chars <= 1600,
-        }
-        return {
-            "case": str(CASE_FILE.relative_to(REPO_ROOT)),
-            "steps": steps,
-            "checks": checks,
-            "passed": all(checks.values()),
-        }
+    all_checks = [*checks.values()]
+    for scenario in scenario_checks.values():
+        all_checks.extend(scenario.values())
+    return {
+        "case": str(CASE_FILE.relative_to(REPO_ROOT)),
+        "pipeline_steps": steps,
+        "checks": checks,
+        "scenario_checks": scenario_checks,
+        "passed": all(all_checks),
+    }
 
 
 def main() -> None:
