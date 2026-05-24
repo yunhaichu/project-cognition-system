@@ -171,6 +171,50 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", "", text).lower()
 
 
+def canonical_object(value: str | None) -> str:
+    text = normalize_text(str(value or ""))
+    replacements = {
+        "assistantfinaloutput": "assistant_output",
+        "assistantoutput": "assistant_output",
+        "assistantanswer": "assistant_output",
+        "agentfinaloutput": "assistant_output",
+        "agentoutput": "assistant_output",
+        "最终输出": "assistant_output",
+        "助手输出": "assistant_output",
+        "agent输出": "assistant_output",
+        "assistant输出": "assistant_output",
+        "核心记忆": "core_memory",
+        "核心事实": "core_memory",
+        "corememory": "core_memory",
+        "world_state.md": "world_state",
+        "worldstate": "world_state",
+        "世界状态": "world_state",
+        "项目世界观": "world_state",
+        "全部上下文": "history_context",
+        "所有历史": "history_context",
+        "历史上下文": "history_context",
+        "rawlogs": "raw_logs",
+        "raw/logs": "raw_logs",
+        "ag ents.md": "agents_md",
+        "agents.md": "agents_md",
+        "用户画像": "user_profile",
+        "userprofile": "user_profile",
+        "pytestsuite": "test_suite",
+        "testsuite": "test_suite",
+        "测试结果": "test_result",
+    }
+    for needle, replacement in replacements.items():
+        if needle in text:
+            return replacement
+    tokens = re.findall(r"[a-z0-9_.-]{3,}", text)
+    if tokens:
+        return "_".join(tokens[:4])
+    chinese = re.findall(r"[\u4e00-\u9fff]{2,}", str(value or ""))
+    if chinese:
+        return normalize_text("".join(chinese[:2]))[:48]
+    return text[:48] if text else "unknown"
+
+
 def detect_signals(text: str, existing_user_texts: list[str] | None = None) -> dict[str, bool]:
     normalized = normalize_text(text)
     existing = [normalize_text(item) for item in existing_user_texts or []]
@@ -275,6 +319,14 @@ def normalize_predicate(value: str | None, claim: str = "") -> str:
         return raw
     text = f"{raw}\n{claim}"
     lowered = text.lower()
+    if re.search(r"(审查|review|人工|proposal|proposed)", lowered) and re.search(
+        r"(world_state|世界状态|核心状态|核心记忆|核心事实|进入|写入|更新)", lowered
+    ):
+        return "require_review"
+    if re.search(r"(不要|不得|不能|禁止|默认不).{0,20}(注入|塞给模型|上下文|context|history|历史)", lowered):
+        return "inject_context"
+    if re.search(r"(llm|模型|总结历史|蒸馏|summar)", lowered):
+        return "call_llm"
     if re.search(r"(assistant|agent).{0,20}(输出|output|answer)|最终输出|核心记忆|核心事实|core memory", lowered):
         if re.search(r"(日志|log)", lowered) and not re.search(r"(核心|core)", lowered):
             return "store_log"
@@ -283,24 +335,18 @@ def normalize_predicate(value: str | None, claim: str = "") -> str:
         return "store_log"
     if re.search(r"(创建|create|保留|生成).{0,20}(agents\.md|文件|目录)|agents\.md", lowered):
         return "create"
-    if re.search(r"(注入|塞给模型|上下文|context|prompt|raw|logs|history|历史)", lowered):
-        return "inject_context"
-    if re.search(r"(llm|模型|总结历史|蒸馏|summar)", lowered):
-        return "call_llm"
-    if re.search(r"(原文|回查|读取|定位|source|evidence)", lowered):
-        return "read_source"
     if re.search(r"(world_state|世界状态|核心状态).{0,20}(更新|生成|重建|修改|进入|写入)|update world", lowered):
         return "update_world_state"
     if re.search(r"(渲染|render|compact|world_state)", lowered):
         return "render"
-    if re.search(r"(审查|review|人工|accepted|accept|proposal|proposed)", lowered):
-        return "require_review"
-    if re.search(r"(覆盖|推翻|supersede|override)", lowered):
-        return "override"
     if re.search(r"(评分|置信|confidence|score|权重|weight)", lowered):
         return "score_evidence"
     if re.search(r"(冲突|conflict|resolve|裁决|defer|chosen)", lowered):
         return "resolve_conflict"
+    if re.search(r"(覆盖|推翻|supersede|override)", lowered):
+        return "override"
+    if re.search(r"(原文|回查|读取|定位|source)", lowered):
+        return "read_source"
     if re.search(r"(test|pytest|测试).{0,20}(pass|passed|通过|失败|failed)", lowered):
         return "test_passed"
     if raw:

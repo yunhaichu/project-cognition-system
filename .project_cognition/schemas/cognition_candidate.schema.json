@@ -45,6 +45,7 @@
           ]
         },
         "object": {"type": "string"},
+        "object_key": {"type": "string"},
         "scope": {"type": "string"},
         "modality": {"type": "string", "enum": ["must", "should", "may", "must_not", "is", "is_not", "unknown"]},
         "valid_from": {"type": "string"},

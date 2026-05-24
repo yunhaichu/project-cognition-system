@@ -1,0 +1,46 @@
+[
+  {
+    "text": "Assistant final output should only be stored as logs and must not enter core memory.",
+    "expected": "enter_core_memory"
+  },
+  {
+    "text": "用户说 assistant 输出只能进入日志，不能进入核心事实。",
+    "expected": "enter_core_memory"
+  },
+  {
+    "text": "WORLD_STATE updates must go through proposal review before being accepted.",
+    "expected": "require_review"
+  },
+  {
+    "text": "默认不要把所有历史上下文注入 prompt。",
+    "expected": "inject_context"
+  },
+  {
+    "text": "post hook must not call LLM to summarize history.",
+    "expected": "call_llm"
+  },
+  {
+    "text": "需要回查历史时只能按证据 id 读取指定原文。",
+    "expected": "read_source"
+  },
+  {
+    "text": "Accepted structured cognition should render into WORLD_STATE.",
+    "expected": "render"
+  },
+  {
+    "text": "工具结果应该参与置信度评分和 evidence weight。",
+    "expected": "score_evidence"
+  },
+  {
+    "text": "冲突 resolve 后 loser 应该被 superseded。",
+    "expected": "resolve_conflict"
+  },
+  {
+    "text": "pytest suite failed, so tests are not passed.",
+    "expected": "test_passed"
+  },
+  {
+    "text": "项目目录不得创建 AGENTS.md。",
+    "expected": "create"
+  }
+]

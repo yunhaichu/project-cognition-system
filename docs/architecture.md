@@ -42,6 +42,8 @@ The structured fields are intentionally small. They give conflict detection and 
 
 `predicate` is normalized to a small local enum. Specific predicates include `enter_core_memory`, `store_log`, `create`, `render`, `override`, `require_review`, `inject_context`, `call_llm`, `read_source`, `update_world_state`, `score_evidence`, `resolve_conflict`, and `test_passed`. The fallback predicates `states`, `requires`, `observed`, and `infers` are kept for compatibility and low-confidence extraction.
 
+Structured objects also include `object_key`, a local canonical key for equivalent objects. For example, `assistant final answer`, `agent output`, and `最终输出` can all resolve to the same conflict object without model calls.
+
 Conflict detection compares structured fields before falling back to keyword topics. Opposite modality for the same `subject / predicate / object / scope` is a conflict. Different scopes are kept separate, so a project-level prohibition does not automatically conflict with a global-user-level allowance.
 
 ## Conflict Lifecycle
@@ -89,4 +91,14 @@ It also checks five drift scenarios: user evidence overriding agent inference, t
 
 Golden invariants live in `evals/golden/minimal_invariants.json`. They assert behavior such as required checks, scenario coverage, and compact character budget without freezing the exact Markdown prose.
 
+Predicate fixtures live in `evals/golden/predicate_fixtures.json`. They test compound Chinese/English sentences so regex ordering regressions are visible.
+
 The eval suite also includes a dogfood case in `evals/cases/dogfood_self_update.jsonl`, where this project records its own tool evidence scoring, structured conflict, and eval scenario work as candidate cognition without allowing assistant output into core memory.
+
+For real-session dogfood, pass exactly one transcript path:
+
+```bash
+python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
+```
+
+The eval intentionally does not discover or bulk-read historical transcripts.

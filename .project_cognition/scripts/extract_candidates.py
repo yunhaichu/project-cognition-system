@@ -10,6 +10,7 @@ from common import (
     AGENT_INTERPRETATIONS,
     TOOL_EVIDENCE,
     USER_UTTERANCES,
+    canonical_object,
     confidence_table_items,
     detect_topics,
     normalize_text,
@@ -94,10 +95,12 @@ def structured_claim(
     scope: str = "project",
 ) -> dict[str, Any]:
     inferred_predicate = normalize_predicate(predicate, claim)
+    obj = object_value or trim_text(re.sub(r"^(用户原话片段：|Agent 理解：|Agent 推断目标：|Agent 推断约束：|Agent 标记风险：|工具证据：)", "", claim), 260)
     return {
         "subject": subject or category,
         "predicate": inferred_predicate,
-        "object": object_value or trim_text(re.sub(r"^(用户原话片段：|Agent 理解：|Agent 推断目标：|Agent 推断约束：|Agent 标记风险：|工具证据：)", "", claim), 260),
+        "object": obj,
+        "object_key": canonical_object(obj),
         "scope": scope,
         "modality": modality_for(claim),
         "valid_from": now_iso(),

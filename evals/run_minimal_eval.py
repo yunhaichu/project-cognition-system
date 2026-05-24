@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CASE_FILE = REPO_ROOT / "evals" / "cases" / "minimal_governance_session.jsonl"
 DOGFOOD_FILE = REPO_ROOT / "evals" / "cases" / "dogfood_self_update.jsonl"
 GOLDEN_FILE = REPO_ROOT / "evals" / "golden" / "minimal_invariants.json"
+PREDICATE_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "predicate_fixtures.json"
+sys.path.insert(0, str(REPO_ROOT / ".project_cognition" / "scripts"))
+from common import canonical_object, normalize_predicate  # noqa: E402
 PREDICATES = {
     "states",
     "requires",
@@ -141,6 +146,7 @@ def item(
             "subject": subject,
             "predicate": predicate,
             "object": object_value,
+            "object_key": canonical_object(object_value),
             "scope": scope,
             "modality": modality,
             "valid_from": "2026-05-24T00:00:00Z",
@@ -189,6 +195,10 @@ def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[st
         "predicate_normalized": bool(items)
         and all(row.get("structured", {}).get("predicate") in PREDICATES for row in items)
         and any(row.get("structured", {}).get("predicate") != "states" for row in items),
+        "predicate_fixtures_pass": all(
+            normalize_predicate(None, row["text"]) == row["expected"] for row in read_json(PREDICATE_FIXTURES_FILE)
+        ),
+        "object_keys_canonicalized": bool(items) and all(row.get("structured", {}).get("object_key") for row in items),
         "candidates_have_structured_fields": bool(items) and all("structured" in row for row in items),
         "tool_only_candidate_requires_review_for_world_state": bool(tool_items)
         and all(row.get("requires_review_for_world_state") and not row.get("include_in_world_state") for row in tool_items),
@@ -397,6 +407,147 @@ def check_compact_structured_summary(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_negative_compact_filters(project_root: Path) -> dict[str, bool]:
+    low_confidence = item(
+        "low_confidence_accepted",
+        claim="Low confidence accepted cognition must not enter compact.",
+        source_type="proposed_update",
+        modality="must",
+        scope="project",
+        subject="compact_world_state",
+        predicate="render",
+        object_value="low confidence accepted cognition",
+        confidence=94,
+    )
+    user_global = item(
+        "user_global_accepted",
+        claim="Global user profile cognition must not enter project compact.",
+        source_type="proposed_update",
+        modality="must",
+        scope="user_global",
+        subject="compact_world_state",
+        predicate="render",
+        object_value="global user profile cognition",
+        confidence=99,
+    )
+    set_items(project_root, [low_confidence, user_global])
+    run_script(project_root, "build_world_state.py")
+    compact = (project_root / ".project_cognition" / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8")
+    return {
+        "low_confidence_accepted_excluded": "low confidence accepted cognition" not in compact,
+        "user_global_excluded": "global user profile cognition" not in compact,
+    }
+
+
+def check_negative_memory_filters(project_root: Path) -> dict[str, bool]:
+    assistant_only = item(
+        "assistant_only",
+        claim="Assistant says its final answer should become core memory.",
+        source_type="agent_interpretation",
+        modality="must",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final answer",
+        confidence=74,
+        status="candidate",
+    )
+    user_rule = item(
+        "user_rule",
+        claim="User says web search output cannot override user utterances.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="web_result",
+        predicate="override",
+        object_value="user utterance",
+        confidence=95,
+    )
+    web_result = item(
+        "web_result",
+        claim="A web result says memory can override user utterances.",
+        source_type="tool_evidence",
+        modality="may",
+        scope="project",
+        subject="web_result",
+        predicate="override",
+        object_value="user utterance",
+        confidence=89,
+        status="candidate",
+    )
+    set_items(project_root, [assistant_only, user_rule, web_result])
+    run_script(project_root, "detect_conflicts.py")
+    rows = {row["id"]: row for row in read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])}
+    conflicts = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")
+    return {
+        "assistant_only_not_core": not rows["assistant_only"].get("include_in_world_state"),
+        "web_result_does_not_override_user": bool(conflicts)
+        and conflicts[0].get("chosen_side") == "user_rule"
+        and not rows["web_result"].get("include_in_world_state"),
+    }
+
+
+def check_deferred_conflict_blocks(project_root: Path) -> dict[str, bool]:
+    a = item(
+        "rule_a",
+        claim="Rule A says assistant output must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+    )
+    b = item(
+        "rule_b",
+        claim="Rule B says assistant output may enter core memory.",
+        source_type="user_utterance",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant output",
+    )
+    set_items(project_root, [a, b])
+    run_script(project_root, "detect_conflicts.py")
+    conflict = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")[0]
+    run_script(project_root, "resolve_conflict.py", ["--conflict-id", conflict["id"], "--action", "defer", "--reason", "Eval defer."])
+    run_script(project_root, "score_candidates.py")
+    rows = {row["id"]: row for row in read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])}
+    return {
+        "deferred_conflict_blocks_both_sides": not rows["rule_a"].get("include_in_world_state")
+        and not rows["rule_b"].get("include_in_world_state")
+    }
+
+
+def check_object_key_conflict(project_root: Path) -> dict[str, bool]:
+    a = item(
+        "assistant_final_output_no_core",
+        claim="Final assistant answer must not enter core facts.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final answer",
+    )
+    b = item(
+        "assistant_output_core",
+        claim="Agent output may enter core memory.",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="agent output",
+        confidence=74,
+        status="candidate",
+    )
+    set_items(project_root, [a, b])
+    result = run_script(project_root, "detect_conflicts.py")
+    return {"equivalent_objects_conflict": result["new_conflicts"] == 1}
+
+
 def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
     steps = {
         "ingest": run_script(
@@ -420,6 +571,28 @@ def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_transcript_dogfood(project_root: Path, transcript: Path) -> dict[str, bool]:
+    steps = {
+        "ingest": run_script(
+            project_root,
+            "ingest_session.py",
+            ["--input", str(transcript), "--session-id", "external_dogfood", "--source", "dogfood_transcript"],
+        ),
+        "extract": run_script(project_root, "extract_candidates.py"),
+        "score": run_script(project_root, "score_candidates.py"),
+        "conflicts": run_script(project_root, "detect_conflicts.py"),
+        "world_state": run_script(project_root, "build_world_state.py"),
+    }
+    cognition_root = project_root / ".project_cognition"
+    assistant_outputs = read_jsonl(cognition_root / "logs" / "outputs" / "external_dogfood.jsonl")
+    table = read_json(cognition_root / "distilled" / "confidence_table.json").get("items", [])
+    return {
+        "transcript_user_ingested": steps["ingest"]["counts"]["user"] > 0,
+        "transcript_assistant_output_logged": steps["ingest"]["counts"]["assistant"] == len(assistant_outputs),
+        "transcript_candidates_structured": bool(table) and all("structured" in row for row in table),
+    }
+
+
 def check_golden_invariants(result: dict[str, Any]) -> dict[str, bool]:
     golden = read_json(GOLDEN_FILE)
     checks = result["checks"]
@@ -439,7 +612,7 @@ def check_golden_invariants(result: dict[str, Any]) -> dict[str, bool]:
     return rows
 
 
-def run_eval() -> dict[str, Any]:
+def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="pcs_eval_") as temp_dir:
         project_root = make_project_copy(temp_dir)
         steps = run_minimal_pipeline(project_root)
@@ -453,11 +626,20 @@ def run_eval() -> dict[str, Any]:
         ("resolve_supersedes_loser", check_resolve_supersedes_loser),
         ("world_state_structured_layer", check_world_state_structured_layer),
         ("compact_structured_summary", check_compact_structured_summary),
+        ("negative_compact_filters", check_negative_compact_filters),
+        ("negative_memory_filters", check_negative_memory_filters),
+        ("deferred_conflict_blocks", check_deferred_conflict_blocks),
+        ("object_key_conflict", check_object_key_conflict),
         ("dogfood_self_update", check_dogfood_self_update),
     ]:
         with tempfile.TemporaryDirectory(prefix=f"pcs_eval_{name}_") as temp_dir:
             project_root = make_project_copy(temp_dir)
             scenario_checks[name] = check_fn(project_root)
+
+    if dogfood_transcript:
+        with tempfile.TemporaryDirectory(prefix="pcs_eval_transcript_dogfood_") as temp_dir:
+            project_root = make_project_copy(temp_dir)
+            scenario_checks["external_transcript_dogfood"] = check_transcript_dogfood(project_root, dogfood_transcript)
 
     result = {
         "case": str(CASE_FILE.relative_to(REPO_ROOT)),
@@ -475,7 +657,17 @@ def run_eval() -> dict[str, Any]:
 
 
 def main() -> None:
-    result = run_eval()
+    parser = argparse.ArgumentParser(description="Run Project Cognition governance evals in temporary project copies.")
+    parser.add_argument("--dogfood-transcript", help="Optional explicit Codex/Hermes transcript JSONL to dogfood. No history directories are scanned.")
+    args = parser.parse_args()
+    transcript_arg = Path(args.dogfood_transcript) if args.dogfood_transcript else None
+    env_transcript = os.environ.get("PROJECT_COGNITION_DOGFOOD_TRANSCRIPT")
+    dogfood_transcript = transcript_arg or (Path(env_transcript) if env_transcript else None)
+    if dogfood_transcript:
+        dogfood_transcript = dogfood_transcript.expanduser().resolve()
+    if dogfood_transcript and not dogfood_transcript.exists():
+        raise SystemExit(f"Dogfood transcript not found: {dogfood_transcript}")
+    result = run_eval(dogfood_transcript)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if not result["passed"]:
         raise SystemExit(1)

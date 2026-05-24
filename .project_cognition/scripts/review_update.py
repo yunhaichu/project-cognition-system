@@ -11,6 +11,7 @@ from common import (
     PROPOSALS_MD,
     SCORING_FEEDBACK,
     append_jsonl,
+    canonical_object,
     category_choices,
     confidence_table_items,
     normalize_predicate,
@@ -74,6 +75,7 @@ def proposal_to_cognition(proposal: dict[str, Any]) -> dict[str, Any]:
         "subject": proposal["category"],
         "predicate": normalize_predicate(None, proposal["claim"]),
         "object": proposal["claim"],
+        "object_key": canonical_object(proposal["claim"]),
         "scope": "project",
         "modality": "unknown",
         "valid_from": now_iso(),
@@ -82,6 +84,7 @@ def proposal_to_cognition(proposal: dict[str, Any]) -> dict[str, Any]:
         "confidence_reason": proposal.get("reason", ""),
         "supersedes": [],
     }
+    structured.setdefault("object_key", canonical_object(structured.get("object") or proposal["claim"]))
     return {
         "id": stable_id("cog", proposal["category"], proposal["claim"]),
         "claim": proposal["claim"],

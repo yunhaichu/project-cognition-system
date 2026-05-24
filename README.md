@@ -92,6 +92,12 @@ python evals/run_minimal_eval.py
 
 eval 还会读取 `evals/golden/minimal_invariants.json`，用 golden invariants 固化关键行为，而不是全文比对文案。当前 golden 覆盖 compact 字符预算、核心检查项、冲突场景、compact structured summary 和 dogfood 自测。
 
+可选地，可以显式传入一段真实 Codex/Hermes transcript 做 dogfood，不会自动扫描历史目录：
+
+```bash
+python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
+```
+
 ### Hook 模型
 
 会话开始时：
@@ -118,6 +124,8 @@ eval 还会读取 `evals/golden/minimal_invariants.json`，用 golden invariants
 候选认知除了保留可读 `claim`，还会带一个最小结构化对象：`subject / predicate / object / scope / modality / valid_from / valid_until / source_refs / confidence_reason / supersedes`。
 
 `predicate` 使用小型枚举并由本地规则归一化，例如 `enter_core_memory / store_log / create / render / override / require_review / inject_context / call_llm / read_source / update_world_state / score_evidence / resolve_conflict / test_passed`。保留 `states / requires / observed / infers` 用于兼容和兜底。
+
+结构化对象还带 `object_key`，用于把 `assistant final answer`、`agent output`、`最终输出` 等本地归一到同一冲突对象。当前仍是规则归一化，不调用模型。
 
 评分层会单独索引 `tool_evidence`。测试结果、git 结果和文件系统结果作为确定性工具证据加权高于 agent interpretation；网页结果和普通命令输出权重较低。tool-only 候选即使置信较高，也默认需要 review 后才可进入核心世界状态。
 
@@ -262,6 +270,12 @@ The current eval also covers five governance scenarios: user evidence overriding
 
 The eval also reads `evals/golden/minimal_invariants.json`. Golden invariants lock down behavior without full-text markdown snapshots. They cover the compact character budget, required checks, conflict scenarios, compact structured summary, and dogfood self-test behavior.
 
+Optionally, pass one explicit real Codex/Hermes transcript for dogfood. The eval does not scan history directories:
+
+```bash
+python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
+```
+
 ### Hook Model
 
 At session start:
@@ -288,6 +302,8 @@ Tool calls are stored in two layers:
 Cognition candidates keep a readable `claim` and a minimal structured object: `subject / predicate / object / scope / modality / valid_from / valid_until / source_refs / confidence_reason / supersedes`.
 
 `predicate` is normalized to a small enum by local rules, including `enter_core_memory / store_log / create / render / override / require_review / inject_context / call_llm / read_source / update_world_state / score_evidence / resolve_conflict / test_passed`. `states / requires / observed / infers` remain as compatibility and fallback predicates.
+
+Structured objects also carry `object_key`, a local canonical key that can treat `assistant final answer`, `agent output`, and `最终输出` as the same conflict object. This remains rule-based and does not call a model.
 
 The scoring layer indexes `tool_evidence` directly. Test results, git results, and filesystem results get stronger deterministic evidence weight than agent interpretation; web results and generic command output get lower weight. Tool-only candidates still require review before entering core world state.
 

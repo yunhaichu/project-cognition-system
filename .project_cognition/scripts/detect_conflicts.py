@@ -6,7 +6,17 @@ import json
 import re
 from typing import Any
 
-from common import CONFLICTS, confidence_table_items, normalize_text, now_iso, read_jsonl, save_confidence_table, stable_id, write_jsonl
+from common import (
+    CONFLICTS,
+    canonical_object,
+    confidence_table_items,
+    normalize_text,
+    now_iso,
+    read_jsonl,
+    save_confidence_table,
+    stable_id,
+    write_jsonl,
+)
 
 
 TOPIC_RULES = {
@@ -73,7 +83,10 @@ def compatible_predicate(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool
 def object_terms(item: dict[str, Any]) -> set[str]:
     structured = item.get("structured", {})
     text = " ".join([str(structured.get("object", "")), str(item.get("claim", ""))])
-    terms = set(topics_for(text))
+    terms = {canonical_object(structured.get("object") or item.get("claim", ""))}
+    if structured.get("object_key"):
+        terms.add(str(structured["object_key"]))
+    terms.update(topics_for(text))
     terms.update(token.lower() for token in re.findall(r"[A-Za-z0-9_.-]{3,}", text))
     for chinese in re.findall(r"[\u4e00-\u9fff]{2,}", text):
         if len(chinese) <= 12:
@@ -82,8 +95,14 @@ def object_terms(item: dict[str, Any]) -> set[str]:
 
 
 def compatible_object(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
-    object_a = normalize_text(str(item_a.get("structured", {}).get("object", "")))
-    object_b = normalize_text(str(item_b.get("structured", {}).get("object", "")))
+    structured_a = item_a.get("structured", {})
+    structured_b = item_b.get("structured", {})
+    key_a = str(structured_a.get("object_key") or canonical_object(structured_a.get("object") or item_a.get("claim", "")))
+    key_b = str(structured_b.get("object_key") or canonical_object(structured_b.get("object") or item_b.get("claim", "")))
+    if key_a and key_b and key_a == key_b:
+        return True
+    object_a = normalize_text(str(structured_a.get("object", "")))
+    object_b = normalize_text(str(structured_b.get("object", "")))
     if object_a and object_b and (object_a in object_b or object_b in object_a):
         return True
     return bool(object_terms(item_a) & object_terms(item_b))
@@ -133,9 +152,9 @@ def evidence_rank(item: dict[str, Any]) -> int:
     confidence = int(item.get("confidence", 0))
     rank = confidence
     if source in {"user_utterance", "manual_initialization"}:
-        rank += 30
+        rank += 40
     elif source == "tool_evidence":
-        rank += 25
+        rank += 20
     elif source == "agent_interpretation":
         rank += 10
     elif source == "assistant_output":
