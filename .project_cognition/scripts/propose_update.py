@@ -36,6 +36,7 @@ def render_markdown(proposals: list[dict[str, Any]]) -> str:
                 f"- Conflicts: {', '.join(proposal.get('conflicts', [])) or 'none'}",
                 f"- Suggested action: {proposal['suggested_action']}",
                 f"- Should update WORLD_STATE.md: {'yes' if proposal.get('should_update_world_state') else 'no'}",
+                f"- Structured: {json.dumps(proposal.get('structured', {}), ensure_ascii=False, sort_keys=True)}",
                 f"- Status: {proposal['status']}",
                 "",
             ]
@@ -47,6 +48,19 @@ def create_proposal(args: argparse.Namespace) -> dict[str, Any]:
     timestamp = now_iso()
     evidence = parse_csv_values(args.evidence)
     conflicts = parse_csv_values(args.conflicts)
+    supersedes = parse_csv_values(args.supersedes)
+    structured = {
+        "subject": args.subject or args.category,
+        "predicate": args.predicate or "states",
+        "object": args.object or args.claim,
+        "scope": args.scope,
+        "modality": args.modality,
+        "valid_from": args.valid_from or timestamp,
+        "valid_until": args.valid_until,
+        "source_refs": evidence,
+        "confidence_reason": args.reason,
+        "supersedes": supersedes,
+    }
     proposal = {
         "id": make_id("prop", args.claim, timestamp),
         "timestamp": timestamp,
@@ -59,6 +73,7 @@ def create_proposal(args: argparse.Namespace) -> dict[str, Any]:
         "suggested_action": args.suggested_action,
         "should_update_world_state": bool_from_yes_no(args.should_update_world_state),
         "status": "pending",
+        "structured": structured,
     }
     append_jsonl(PROPOSALS_JSONL, proposal)
     proposals = read_jsonl(PROPOSALS_JSONL)
@@ -76,6 +91,14 @@ def main() -> None:
     parser.add_argument("--conflicts", action="append", help="Known conflict ids. Can be repeated or comma-separated.")
     parser.add_argument("--suggested-action", choices=["accept", "reject", "defer"], default="defer", help="Suggested review action.")
     parser.add_argument("--should-update-world-state", choices=["yes", "no"], default="no", help="Whether this should enter WORLD_STATE.md if accepted.")
+    parser.add_argument("--subject", help="Structured subject for this cognition.")
+    parser.add_argument("--predicate", help="Structured predicate for this cognition.")
+    parser.add_argument("--object", help="Structured object for this cognition.")
+    parser.add_argument("--scope", default="project", help="Structured scope. Default: project.")
+    parser.add_argument("--modality", default="unknown", choices=["must", "should", "may", "must_not", "is", "is_not", "unknown"], help="Structured modality.")
+    parser.add_argument("--valid-from", help="Optional validity start timestamp.")
+    parser.add_argument("--valid-until", help="Optional validity end timestamp.")
+    parser.add_argument("--supersedes", action="append", help="Cognition ids superseded by this proposal. Can be repeated or comma-separated.")
     args = parser.parse_args()
 
     proposal = create_proposal(args)

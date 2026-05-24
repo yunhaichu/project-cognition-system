@@ -15,6 +15,7 @@ venv/
 # Keep empty placeholders.
 !.project_cognition/raw/user_utterances.jsonl
 !.project_cognition/raw/agent_interpretations.jsonl
+!.project_cognition/raw/tool_evidence.jsonl
 !.project_cognition/raw/decisions.jsonl
 !.project_cognition/raw/conflicts.jsonl
 !.project_cognition/proposals/proposed_updates.jsonl

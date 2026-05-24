@@ -8,6 +8,7 @@ from typing import Any
 
 from common import (
     AGENT_INTERPRETATIONS,
+    TOOL_EVIDENCE,
     USER_UTTERANCES,
     confidence_table_items,
     detect_topics,
@@ -16,6 +17,7 @@ from common import (
     read_jsonl,
     save_confidence_table,
     stable_id,
+    trim_text,
 )
 
 
@@ -67,6 +69,43 @@ def classify_claim(fragment: str) -> str:
     return "project_principle"
 
 
+def modality_for(fragment: str) -> str:
+    if re.search(r"(不得|不要|不能|禁止|不可|不应该|不引入|不能进入|不是)", fragment):
+        return "must_not"
+    if re.search(r"(必须|需要|要求|只能|每次|应当|应该)", fragment):
+        return "must"
+    if re.search(r"(可以|支持|允许)", fragment):
+        return "may"
+    if re.search(r"(不是|不属于)", fragment):
+        return "is_not"
+    return "unknown"
+
+
+def structured_claim(
+    *,
+    category: str,
+    claim: str,
+    evidence: list[str],
+    source_type: str,
+    subject: str | None = None,
+    predicate: str | None = None,
+    object_value: str | None = None,
+    scope: str = "project",
+) -> dict[str, Any]:
+    return {
+        "subject": subject or category,
+        "predicate": predicate or "states",
+        "object": object_value or trim_text(re.sub(r"^(用户原话片段：|Agent 理解：|Agent 推断目标：|Agent 推断约束：|Agent 标记风险：|工具证据：)", "", claim), 260),
+        "scope": scope,
+        "modality": modality_for(claim),
+        "valid_from": now_iso(),
+        "valid_until": None,
+        "source_refs": evidence,
+        "confidence_reason": f"Extracted by local rule from {source_type}.",
+        "supersedes": [],
+    }
+
+
 def stability_for(category: str, source: dict[str, Any]) -> str:
     if category == "strategy":
         return "temporary"
@@ -79,12 +118,13 @@ def stability_for(category: str, source: dict[str, Any]) -> str:
 def candidate_from_utterance(utterance: dict[str, Any], fragment: str) -> dict[str, Any]:
     category = classify_claim(fragment)
     claim = f"用户原话片段：{fragment}"
+    evidence = [utterance["id"]]
     return {
         "id": stable_id("cog", category, claim, utterance["id"]),
         "claim": claim,
         "category": category,
         "confidence": 0,
-        "evidence": [utterance["id"]],
+        "evidence": evidence,
         "conflicts": [],
         "last_verified": now_iso(),
         "stability": stability_for(category, utterance),
@@ -92,6 +132,14 @@ def candidate_from_utterance(utterance: dict[str, Any], fragment: str) -> dict[s
         "source_type": "user_utterance",
         "status": "candidate",
         "topics": detect_topics(fragment),
+        "structured": structured_claim(
+            category=category,
+            claim=claim,
+            evidence=evidence,
+            source_type="user_utterance",
+            subject="user_intent" if category == "user_principle" else "project_cognition_system",
+            predicate="requires" if modality_for(fragment) in {"must", "must_not"} else "states",
+        ),
     }
 
 
@@ -105,13 +153,14 @@ def candidates_from_interpretation(record: dict[str, Any]) -> list[dict[str, Any
 
     candidates: list[dict[str, Any]] = []
     for category, claim in rows:
+        evidence = [record["id"]]
         candidates.append(
             {
                 "id": stable_id("cog", category, claim, record["id"]),
                 "claim": claim,
                 "category": category,
                 "confidence": min(int(record.get("confidence", 50)), 74),
-                "evidence": [record["id"]],
+                "evidence": evidence,
                 "conflicts": [],
                 "last_verified": now_iso(),
                 "stability": "evolving",
@@ -119,9 +168,56 @@ def candidates_from_interpretation(record: dict[str, Any]) -> list[dict[str, Any
                 "source_type": "agent_interpretation",
                 "status": "candidate",
                 "topics": detect_topics(claim),
+                "structured": structured_claim(
+                    category=category,
+                    claim=claim,
+                    evidence=evidence,
+                    source_type="agent_interpretation",
+                    subject="agent_interpretation",
+                    predicate="infers",
+                    scope="project",
+                ),
             }
         )
     return candidates
+
+
+def candidates_from_tool_evidence(record: dict[str, Any]) -> list[dict[str, Any]]:
+    kind = str(record.get("evidence_kind", "command_output"))
+    if kind not in {"test_result", "git_result", "filesystem_result"}:
+        return []
+    summary = trim_text(str(record.get("content_summary", "")), 180)
+    if not summary:
+        return []
+    outcome = str(record.get("outcome", "observed"))
+    claim = f"工具证据：{kind} / {outcome} / {summary}"
+    evidence = [record["id"]]
+    return [
+        {
+            "id": stable_id("cog", "strategy", claim, record["id"]),
+            "claim": claim,
+            "category": "strategy",
+            "confidence": 0,
+            "evidence": evidence,
+            "conflicts": [],
+            "last_verified": now_iso(),
+            "stability": "temporary",
+            "include_in_world_state": False,
+            "source_type": "tool_evidence",
+            "status": "candidate",
+            "topics": list(dict.fromkeys([*record.get("linked_topics", []), kind])),
+            "structured": structured_claim(
+                category="strategy",
+                claim=claim,
+                evidence=evidence,
+                source_type="tool_evidence",
+                subject="tool_result",
+                predicate="observed",
+                object_value=summary,
+                scope=kind,
+            ),
+        }
+    ]
 
 
 def merge_key(item: dict[str, Any]) -> tuple[str, str]:
@@ -142,6 +238,8 @@ def merge_candidates(existing: list[dict[str, Any]], new_candidates: list[dict[s
             for evidence_id in candidate.get("evidence", []):
                 if evidence_id not in current["evidence"]:
                     current["evidence"].append(evidence_id)
+            if "structured" not in current and candidate.get("structured"):
+                current["structured"] = candidate["structured"]
         elif candidate["id"] not in by_id:
             by_id[candidate["id"]] = candidate
             by_key[key] = candidate["id"]
@@ -165,6 +263,9 @@ def main() -> None:
 
     for interpretation in read_jsonl(AGENT_INTERPRETATIONS):
         candidates.extend(candidates_from_interpretation(interpretation))
+
+    for tool_record in read_jsonl(TOOL_EVIDENCE):
+        candidates.extend(candidates_from_tool_evidence(tool_record))
 
     merged, added = merge_candidates(confidence_table_items(), candidates[: args.max_new])
     save_confidence_table(merged)

@@ -22,7 +22,7 @@ SECTION_ORDER = [
 def blocked_item_ids() -> set[str]:
     blocked: set[str] = set()
     for conflict in read_jsonl(CONFLICTS):
-        if conflict.get("resolution") == "unresolved" and int(conflict.get("severity", 0)) >= 60:
+        if conflict.get("resolution") in {"unresolved", "deferred"} and int(conflict.get("severity", 0)) >= 60:
             blocked.add(str(conflict.get("item_a", "")))
             blocked.add(str(conflict.get("item_b", "")))
     return blocked

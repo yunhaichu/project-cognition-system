@@ -10,6 +10,11 @@
     "user_explicit_rejection": 4.0,
     "user_strong_emphasis": 3.0,
     "user_long_term": 5.0,
+    "tool_evidence": 4.0,
+    "tool_test_result": 4.0,
+    "tool_git_result": 3.0,
+    "tool_filesystem_result": 3.0,
+    "tool_deterministic": 3.0,
     "agent_interpretation": 1.0,
     "assistant_output": 0.5,
     "missing_evidence": -5.0,
@@ -19,4 +24,3 @@
   },
   "notes": "Default local rule weights. Review feedback can adjust these values."
 }
-

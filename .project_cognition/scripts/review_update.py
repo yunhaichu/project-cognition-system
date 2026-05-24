@@ -38,6 +38,8 @@ def infer_feedback_signals(proposal: dict[str, Any]) -> list[str]:
         signals.add("user_long_term")
     if any(token in text for token in ["用户画像", "AGENTS.md", "每个项目", "项目文件夹"]):
         signals.add("user_profile_or_project_scope")
+    if "tool_ev_" in text:
+        signals.add("tool_evidence")
     if not proposal.get("evidence"):
         signals.add("missing_evidence")
     if proposal.get("conflicts"):
@@ -67,6 +69,18 @@ def record_scoring_feedback(proposal: dict[str, Any], action: str, note: str) ->
 
 def proposal_to_cognition(proposal: dict[str, Any]) -> dict[str, Any]:
     confidence = int(proposal.get("confidence", 0))
+    structured = proposal.get("structured") or {
+        "subject": proposal["category"],
+        "predicate": "states",
+        "object": proposal["claim"],
+        "scope": "project",
+        "modality": "unknown",
+        "valid_from": now_iso(),
+        "valid_until": None,
+        "source_refs": proposal.get("evidence", []),
+        "confidence_reason": proposal.get("reason", ""),
+        "supersedes": [],
+    }
     return {
         "id": stable_id("cog", proposal["category"], proposal["claim"]),
         "claim": proposal["claim"],
@@ -79,6 +93,7 @@ def proposal_to_cognition(proposal: dict[str, Any]) -> dict[str, Any]:
         "include_in_world_state": bool(proposal.get("should_update_world_state")) and confidence >= 90 and not proposal.get("conflicts"),
         "source_type": "proposed_update",
         "status": "accepted",
+        "structured": structured,
     }
 
 

@@ -33,6 +33,15 @@ def topics_for(claim: str) -> set[str]:
     return topics
 
 
+def structured_polarity(item: dict[str, Any]) -> str:
+    modality = str(item.get("structured", {}).get("modality", ""))
+    if modality in {"must_not", "is_not"}:
+        return "negative"
+    if modality in {"must", "should", "may", "is"}:
+        return "positive"
+    return "neutral"
+
+
 def polarity_for(claim: str) -> str:
     has_negative = bool(NEGATIVE_RE.search(claim))
     has_positive = bool(POSITIVE_RE.search(claim))
@@ -57,6 +66,8 @@ def evidence_rank(item: dict[str, Any]) -> int:
     rank = confidence
     if source in {"user_utterance", "manual_initialization"}:
         rank += 30
+    elif source == "tool_evidence":
+        rank += 25
     elif source == "agent_interpretation":
         rank += 10
     elif source == "assistant_output":
@@ -68,6 +79,8 @@ def conflict_type(item_a: dict[str, Any], item_b: dict[str, Any]) -> str:
     sources = {item_a.get("source_type"), item_b.get("source_type")}
     if sources <= {"user_utterance", "manual_initialization"}:
         return "user_vs_user"
+    if "tool_evidence" in sources:
+        return "old_vs_new"
     if "agent_interpretation" in sources or "assistant_output" in sources:
         return "user_vs_agent"
     return "old_vs_new"
@@ -109,11 +122,15 @@ def detect(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     active = [item for item in items if item.get("status") not in {"rejected", "superseded"} and int(item.get("confidence", 0)) >= 50]
     for index, item_a in enumerate(active):
         topics_a = topics_for(str(item_a.get("claim", "")))
-        polarity_a = polarity_for(str(item_a.get("claim", "")))
+        polarity_a = structured_polarity(item_a)
+        if polarity_a == "neutral":
+            polarity_a = polarity_for(str(item_a.get("claim", "")))
         if polarity_a not in {"positive", "negative"}:
             continue
         for item_b in active[index + 1 :]:
-            polarity_b = polarity_for(str(item_b.get("claim", "")))
+            polarity_b = structured_polarity(item_b)
+            if polarity_b == "neutral":
+                polarity_b = polarity_for(str(item_b.get("claim", "")))
             if polarity_b not in {"positive", "negative"} or polarity_a == polarity_b:
                 continue
             shared_topics = topics_a & topics_for(str(item_b.get("claim", "")))

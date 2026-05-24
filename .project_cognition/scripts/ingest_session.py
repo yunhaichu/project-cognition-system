@@ -9,8 +9,10 @@ from typing import Any
 from common import (
     AGENT_INTERPRETATIONS,
     COGNITION_ROOT,
+    TOOL_EVIDENCE,
     USER_UTTERANCES,
     append_jsonl,
+    classify_tool_evidence,
     detect_signals,
     detect_topics,
     importance_from_signals,
@@ -166,7 +168,29 @@ def ingest_assistant(record: dict[str, Any], session_id: str, existing_ids: set[
     return output, True
 
 
-def ingest_tool(record: dict[str, Any], session_id: str, existing_ids: set[str]) -> tuple[dict[str, Any], bool]:
+def tool_evidence_from_call(tool_call: dict[str, Any]) -> dict[str, Any]:
+    classification = classify_tool_evidence(str(tool_call.get("name", "")), str(tool_call.get("content", "")))
+    content = str(tool_call.get("content", ""))
+    return {
+        "id": make_id("tool_ev", f"{tool_call.get('name', '')}:{content}", str(tool_call.get("timestamp") or now_iso())),
+        "session_id": tool_call["session_id"],
+        "timestamp": tool_call["timestamp"],
+        "tool_name": tool_call["name"],
+        "source_log_id": tool_call["id"],
+        "source": "tool",
+        "content_summary": content[:1200],
+        "linked_topics": detect_topics(content),
+        "notes": "",
+        **classification,
+    }
+
+
+def ingest_tool(
+    record: dict[str, Any],
+    session_id: str,
+    existing_ids: set[str],
+    existing_evidence_ids: set[str],
+) -> tuple[dict[str, Any], bool, bool]:
     content = str(record.get("content", ""))
     timestamp = str(record.get("timestamp") or now_iso())
     tool_call = {
@@ -176,11 +200,19 @@ def ingest_tool(record: dict[str, Any], session_id: str, existing_ids: set[str])
         "name": str(record.get("name") or "tool"),
         "content": content,
     }
-    if tool_call["id"] in existing_ids:
-        return tool_call, False
-    append_jsonl(COGNITION_ROOT / "logs" / "tool_calls" / f"{session_id}.jsonl", tool_call)
-    existing_ids.add(tool_call["id"])
-    return tool_call, True
+    wrote_log = False
+    if tool_call["id"] not in existing_ids:
+        append_jsonl(COGNITION_ROOT / "logs" / "tool_calls" / f"{session_id}.jsonl", tool_call)
+        existing_ids.add(tool_call["id"])
+        wrote_log = True
+
+    evidence = tool_evidence_from_call(tool_call)
+    wrote_evidence = False
+    if evidence["id"] not in existing_evidence_ids:
+        append_jsonl(TOOL_EVIDENCE, evidence)
+        existing_evidence_ids.add(evidence["id"])
+        wrote_evidence = True
+    return tool_call, wrote_log, wrote_evidence
 
 
 def ingest_records(records: list[dict[str, Any]], session_id: str, source: str, input_path: Path) -> dict[str, Any]:
@@ -194,7 +226,8 @@ def ingest_records(records: list[dict[str, Any]], session_id: str, source: str, 
     tool_path = COGNITION_ROOT / "logs" / "tool_calls" / f"{session_id}.jsonl"
     existing_output_ids = {record.get("id", "") for record in read_jsonl(output_path)}
     existing_tool_ids = {record.get("id", "") for record in read_jsonl(tool_path)}
-    counts = {"user": 0, "assistant": 0, "tool": 0, "ignored": 0, "duplicates": 0}
+    existing_tool_evidence_ids = {record.get("id", "") for record in read_jsonl(TOOL_EVIDENCE)}
+    counts = {"user": 0, "assistant": 0, "tool": 0, "tool_evidence": 0, "ignored": 0, "duplicates": 0}
     first_timestamp = records[0].get("timestamp") if records else now_iso()
     last_timestamp = records[-1].get("timestamp") if records else now_iso()
 
@@ -211,8 +244,10 @@ def ingest_records(records: list[dict[str, Any]], session_id: str, source: str, 
             _, written = ingest_assistant(record, session_id, existing_output_ids)
             counts["assistant" if written else "duplicates"] += 1
         elif role == "tool":
-            _, written = ingest_tool(record, session_id, existing_tool_ids)
-            counts["tool" if written else "duplicates"] += 1
+            _, wrote_log, wrote_evidence = ingest_tool(record, session_id, existing_tool_ids, existing_tool_evidence_ids)
+            counts["tool" if wrote_log else "duplicates"] += 1
+            if wrote_evidence:
+                counts["tool_evidence"] += 1
         else:
             counts["ignored"] += 1
 

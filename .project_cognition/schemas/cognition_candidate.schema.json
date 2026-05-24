@@ -14,6 +14,22 @@
     "stability": {"type": "string", "enum": ["stable", "evolving", "temporary"]},
     "include_in_world_state": {"type": "boolean"},
     "source_type": {"type": "string"},
-    "status": {"type": "string"}
+    "status": {"type": "string"},
+    "structured": {
+      "type": "object",
+      "properties": {
+        "subject": {"type": "string"},
+        "predicate": {"type": "string"},
+        "object": {"type": "string"},
+        "scope": {"type": "string"},
+        "modality": {"type": "string", "enum": ["must", "should", "may", "must_not", "is", "is_not", "unknown"]},
+        "valid_from": {"type": "string"},
+        "valid_until": {"type": ["string", "null"]},
+        "source_refs": {"type": "array", "items": {"type": "string"}},
+        "confidence_reason": {"type": "string"},
+        "supersedes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "superseded_by": {"type": "string"}
   }
 }

@@ -10,6 +10,7 @@ from common import (
     AGENT_INTERPRETATIONS,
     CONFLICTS,
     SCORING_WEIGHTS,
+    TOOL_EVIDENCE,
     USER_UTTERANCES,
     LONG_TERM_RE,
     confidence_table_items,
@@ -27,6 +28,11 @@ DEFAULT_SIGNAL_WEIGHTS = {
     "user_strong_emphasis": 3.0,
     "user_long_term": 5.0,
     "user_profile_or_project_scope": 4.0,
+    "tool_evidence": 4.0,
+    "tool_test_result": 4.0,
+    "tool_git_result": 3.0,
+    "tool_filesystem_result": 3.0,
+    "tool_deterministic": 3.0,
     "agent_interpretation": 1.0,
     "assistant_output": 0.5,
     "unresolved_conflict": -5.0,
@@ -47,21 +53,23 @@ def load_scoring_weights() -> dict[str, Any]:
     }
 
 
-def evidence_indexes() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], set[str]]:
+def evidence_indexes() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]], set[str]]:
     utterances = {record["id"]: record for record in read_jsonl(USER_UTTERANCES)}
     interpretations = {record["id"]: record for record in read_jsonl(AGENT_INTERPRETATIONS)}
+    tool_evidence = {record["id"]: record for record in read_jsonl(TOOL_EVIDENCE)}
     unresolved_conflicts = {
         record["id"]
         for record in read_jsonl(CONFLICTS)
-        if record.get("resolution") == "unresolved" and int(record.get("severity", 0)) >= 60
+        if record.get("resolution") in {"unresolved", "deferred"} and int(record.get("severity", 0)) >= 60
     }
-    return utterances, interpretations, unresolved_conflicts
+    return utterances, interpretations, tool_evidence, unresolved_conflicts
 
 
 def score_item(
     item: dict[str, Any],
     utterances: dict[str, dict[str, Any]],
     interpretations: dict[str, dict[str, Any]],
+    tool_evidence: dict[str, dict[str, Any]],
     unresolved_conflicts: set[str],
     weights: dict[str, Any],
 ) -> dict[str, Any]:
@@ -85,6 +93,7 @@ def score_item(
     matched_signals: list[str] = []
     has_user_evidence = False
     has_agent_evidence = False
+    has_tool_evidence = False
 
     for evidence_id in item.get("evidence", []):
         utterance = utterances.get(evidence_id)
@@ -116,6 +125,24 @@ def score_item(
             has_agent_evidence = True
             points += signal_weights["agent_interpretation"]
             matched_signals.append("agent_interpretation")
+        tool_record = tool_evidence.get(evidence_id)
+        if tool_record:
+            has_tool_evidence = True
+            kind = str(tool_record.get("evidence_kind", "command_output"))
+            points += signal_weights["tool_evidence"]
+            matched_signals.append("tool_evidence")
+            if kind == "test_result":
+                points += signal_weights["tool_test_result"]
+                matched_signals.append("tool_test_result")
+            elif kind == "git_result":
+                points += signal_weights["tool_git_result"]
+                matched_signals.append("tool_git_result")
+            elif kind == "filesystem_result":
+                points += signal_weights["tool_filesystem_result"]
+                matched_signals.append("tool_filesystem_result")
+            if tool_record.get("deterministic"):
+                points += signal_weights["tool_deterministic"]
+                matched_signals.append("tool_deterministic")
 
     if item.get("source_type") == "assistant_output":
         points += signal_weights["assistant_output"]
@@ -123,18 +150,20 @@ def score_item(
     if any(conflict in unresolved_conflicts for conflict in item.get("conflicts", [])):
         points += signal_weights["unresolved_conflict"]
         matched_signals.append("unresolved_conflict")
-    if len(item.get("evidence", [])) == 1 and not has_user_evidence and not has_agent_evidence:
+    if len(item.get("evidence", [])) == 1 and not has_user_evidence and not has_agent_evidence and not has_tool_evidence:
         points += signal_weights["single_weak_non_user_evidence"]
         matched_signals.append("single_weak_non_user_evidence")
     if not item.get("evidence"):
         points += signal_weights["missing_evidence"]
         matched_signals.append("missing_evidence")
 
-    if not has_user_evidence and has_agent_evidence:
+    if not has_user_evidence and has_agent_evidence and not has_tool_evidence:
         confidence = min(74, int(weights["base_confidence"] + points * weights["point_multiplier"]))
     else:
         confidence = int(weights["base_confidence"] + points * weights["point_multiplier"])
     confidence = max(0, min(100, confidence))
+    if has_tool_evidence and not has_user_evidence and item.get("status") != "accepted":
+        confidence = min(89, confidence)
 
     item["confidence"] = confidence
     item["score_signals"] = sorted(set(matched_signals))
@@ -152,8 +181,8 @@ def main() -> None:
     parser.add_argument("--min-world-confidence", type=int, default=weights["min_world_confidence"], help="Minimum confidence for WORLD_STATE inclusion.")
     args = parser.parse_args()
 
-    utterances, interpretations, unresolved_conflicts = evidence_indexes()
-    scored = [score_item(item, utterances, interpretations, unresolved_conflicts, weights) for item in confidence_table_items()]
+    utterances, interpretations, tool_evidence, unresolved_conflicts = evidence_indexes()
+    scored = [score_item(item, utterances, interpretations, tool_evidence, unresolved_conflicts, weights) for item in confidence_table_items()]
     for item in scored:
         if int(item.get("confidence", 0)) < args.min_world_confidence:
             item["include_in_world_state"] = False

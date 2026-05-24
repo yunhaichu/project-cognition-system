@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolEvidence",
+  "type": "object",
+  "required": ["id", "session_id", "timestamp", "tool_name", "source_log_id", "source", "evidence_kind", "deterministic", "outcome", "content_summary"],
+  "properties": {
+    "id": {"type": "string"},
+    "session_id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "tool_name": {"type": "string"},
+    "source_log_id": {"type": "string"},
+    "source": {"type": "string", "enum": ["tool"]},
+    "evidence_kind": {"type": "string", "enum": ["test_result", "git_result", "filesystem_result", "web_result", "command_output"]},
+    "deterministic": {"type": "boolean"},
+    "outcome": {"type": "string"},
+    "content_summary": {"type": "string"},
+    "linked_topics": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "string"}
+  }
+}

@@ -38,6 +38,7 @@ USER_PROFILE = user_profile_path()
 
 USER_UTTERANCES = COGNITION_ROOT / "raw" / "user_utterances.jsonl"
 AGENT_INTERPRETATIONS = COGNITION_ROOT / "raw" / "agent_interpretations.jsonl"
+TOOL_EVIDENCE = COGNITION_ROOT / "raw" / "tool_evidence.jsonl"
 DECISIONS = COGNITION_ROOT / "raw" / "decisions.jsonl"
 CONFLICTS = COGNITION_ROOT / "raw" / "conflicts.jsonl"
 CONFIDENCE_TABLE = COGNITION_ROOT / "distilled" / "confidence_table.json"
@@ -187,6 +188,48 @@ def detect_topics(text: str) -> list[str]:
         if any(keyword.lower() in text.lower() for keyword in keywords):
             topics.append(topic)
     return topics
+
+
+def trim_text(text: str, max_len: int = 1000) -> str:
+    collapsed = re.sub(r"\s+", " ", str(text)).strip()
+    if len(collapsed) <= max_len:
+        return collapsed
+    return collapsed[: max_len - 1] + "…"
+
+
+def classify_tool_evidence(tool_name: str, content: str) -> dict[str, Any]:
+    haystack = f"{tool_name}\n{content}".lower()
+    kind = "command_output"
+    deterministic = False
+    outcome = "unknown"
+
+    if re.search(r"(pytest|unittest|npm test|pnpm test|yarn test|cargo test|go test|swift test|xcodebuild|test_result)", haystack):
+        kind = "test_result"
+        deterministic = True
+        if re.search(r"(\bfailed\b|\bfailures?\b|\berror\b|exit(ed)? with code [1-9])", haystack):
+            outcome = "failed"
+        elif re.search(r"(\bpassed\b|\bok\b|0 failed|exit(ed)? with code 0)", haystack):
+            outcome = "passed"
+    elif re.search(r"\bgit (status|diff|show|log|rev-parse)\b|^git[_ -]", haystack):
+        kind = "git_result"
+        deterministic = True
+        if "working tree clean" in haystack or "nothing to commit" in haystack:
+            outcome = "clean"
+        elif re.search(r"(modified:|untracked files|changes not staged|diff --git)", haystack):
+            outcome = "changes_present"
+    elif re.search(r"(\brg --files\b|\bfind\b|\bls\b|\bpwd\b|\bstat\b|\btest -e\b|\bcat\b|\bsed\b)", haystack):
+        kind = "filesystem_result"
+        deterministic = True
+        outcome = "observed"
+    elif re.search(r"(https?://|web|browser|open url|search_query)", haystack):
+        kind = "web_result"
+        outcome = "observed"
+
+    return {
+        "evidence_kind": kind,
+        "deterministic": deterministic,
+        "outcome": outcome,
+    }
 
 
 def confidence_table_items() -> list[dict[str, Any]]:
