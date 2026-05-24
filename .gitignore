@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+
+# Real project evidence can contain private conversations and tool output.
+.project_cognition/raw/*.jsonl
+.project_cognition/raw/sessions/*.json
+.project_cognition/logs/**/*.json
+.project_cognition/logs/**/*.jsonl
+.project_cognition/proposals/*.jsonl
+.project_cognition/distilled/scoring_feedback.jsonl
+
+# Keep empty placeholders.
+!.project_cognition/raw/user_utterances.jsonl
+!.project_cognition/raw/agent_interpretations.jsonl
+!.project_cognition/raw/decisions.jsonl
+!.project_cognition/raw/conflicts.jsonl
+!.project_cognition/proposals/proposed_updates.jsonl
+!.project_cognition/**/.gitkeep

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UserUtterance",
+  "type": "object",
+  "required": ["id", "session_id", "timestamp", "text", "source", "importance_score", "signals", "linked_topics"],
+  "properties": {
+    "id": {"type": "string"},
+    "session_id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "text": {"type": "string"},
+    "source": {"type": "string"},
+    "importance_score": {"type": "integer", "minimum": 0, "maximum": 100},
+    "signals": {
+      "type": "object",
+      "required": ["long_form", "repeated", "explicit_preference", "explicit_rejection", "strong_emphasis"],
+      "properties": {
+        "long_form": {"type": "boolean"},
+        "repeated": {"type": "boolean"},
+        "explicit_preference": {"type": "boolean"},
+        "explicit_rejection": {"type": "boolean"},
+        "strong_emphasis": {"type": "boolean"}
+      }
+    },
+    "linked_topics": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "string"}
+  }
+}

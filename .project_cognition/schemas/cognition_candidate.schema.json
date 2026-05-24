@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CognitionCandidate",
+  "type": "object",
+  "required": ["id", "claim", "category", "confidence", "evidence", "conflicts", "last_verified", "stability", "include_in_world_state"],
+  "properties": {
+    "id": {"type": "string"},
+    "claim": {"type": "string"},
+    "category": {"type": "string", "enum": ["user_principle", "project_principle", "constraint", "risk", "strategy", "decision"]},
+    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+    "conflicts": {"type": "array", "items": {"type": "string"}},
+    "last_verified": {"type": "string"},
+    "stability": {"type": "string", "enum": ["stable", "evolving", "temporary"]},
+    "include_in_world_state": {"type": "boolean"},
+    "source_type": {"type": "string"},
+    "status": {"type": "string"}
+  }
+}

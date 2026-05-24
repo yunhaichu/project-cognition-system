@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "base_confidence": 60,
+  "min_world_confidence": 90,
+  "point_multiplier": 5.0,
+  "signal_weights": {
+    "user_long_form": 5.0,
+    "user_repeated": 5.0,
+    "user_explicit_preference": 4.0,
+    "user_explicit_rejection": 4.0,
+    "user_strong_emphasis": 3.0,
+    "user_long_term": 5.0,
+    "agent_interpretation": 1.0,
+    "assistant_output": 0.5,
+    "missing_evidence": -5.0,
+    "unresolved_conflict": -5.0,
+    "single_weak_non_user_evidence": -2.0,
+    "user_profile_or_project_scope": 4.0
+  },
+  "notes": "Default local rule weights. Review feedback can adjust these values."
+}
+

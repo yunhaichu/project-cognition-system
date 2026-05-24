@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProposedUpdate",
+  "type": "object",
+  "required": ["id", "timestamp", "claim", "category", "evidence", "confidence", "reason", "conflicts", "suggested_action", "should_update_world_state", "status"],
+  "properties": {
+    "id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "claim": {"type": "string"},
+    "category": {"type": "string", "enum": ["user_principle", "project_principle", "constraint", "risk", "strategy", "decision"]},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+    "reason": {"type": "string"},
+    "conflicts": {"type": "array", "items": {"type": "string"}},
+    "suggested_action": {"type": "string", "enum": ["accept", "reject", "defer"]},
+    "should_update_world_state": {"type": "boolean"},
+    "status": {"type": "string", "enum": ["pending", "accepted", "rejected", "deferred"]}
+  }
+}

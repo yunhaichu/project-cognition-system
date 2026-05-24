@@ -1,0 +1,4 @@
+{"role":"user","content":"这个项目的目标是做本地文件版项目认知系统 MVP。用户原话必须最高权重，Agent 输出只能进入日志，不能进入核心记忆。不要引入数据库，不要先做 Web UI。","timestamp":"2026-05-22T12:00:00Z"}
+{"role":"assistant","content":"我会按本地文件版 MVP 实现 raw 到 WORLD_STATE 再到 proposed_updates 和 review 的闭环。","timestamp":"2026-05-22T12:01:00Z"}
+{"role":"tool","name":"shell","content":"mkdir -p .project_cognition/raw .project_cognition/distilled .project_cognition/proposals","timestamp":"2026-05-22T12:02:00Z"}
+{"role":"user","content":"每次任务前必须先读 WORLD_STATE.md；任务结束后只提出 proposed update，不能让 Agent 直接改核心世界状态。低置信、无证据、存在严重未解决冲突的内容不得进入 WORLD_STATE.md。","timestamp":"2026-05-22T12:03:00Z"}

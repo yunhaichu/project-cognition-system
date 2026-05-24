@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentInterpretation",
+  "type": "object",
+  "required": ["id", "session_id", "timestamp", "based_on_utterance_ids", "agent_understanding", "confidence", "status"],
+  "properties": {
+    "id": {"type": "string"},
+    "session_id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "based_on_utterance_ids": {"type": "array", "items": {"type": "string"}},
+    "agent_understanding": {"type": "string"},
+    "inferred_goals": {"type": "array", "items": {"type": "string"}},
+    "inferred_constraints": {"type": "array", "items": {"type": "string"}},
+    "risks": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+    "possible_misreadings": {"type": "array", "items": {"type": "string"}},
+    "status": {"type": "string", "enum": ["candidate", "accepted", "rejected"]}
+  }
+}

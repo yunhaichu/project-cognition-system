@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorldStateBuild",
+  "type": "object",
+  "required": ["generated_at", "sections", "included_cognition_ids"],
+  "properties": {
+    "generated_at": {"type": "string"},
+    "sections": {
+      "type": "object",
+      "properties": {
+        "project_nature": {"type": "string"},
+        "user_core_intent": {"type": "string"},
+        "current_status": {"type": "string"},
+        "stable_principles": {"type": "string"},
+        "non_negotiables": {"type": "string"},
+        "risks": {"type": "string"},
+        "current_strategy": {"type": "string"},
+        "drift_check": {"type": "array", "items": {"type": "string"}},
+        "update_rules": {"type": "string"}
+      }
+    },
+    "included_cognition_ids": {"type": "array", "items": {"type": "string"}}
+  }
+}
