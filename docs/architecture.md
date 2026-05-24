@@ -105,6 +105,7 @@ The regression suite includes negative and multi-session cases:
 - deferred conflicts keep both sides blocked
 - superseded rules do not revive in later sessions
 - compact state keeps only the current high-priority project rule
+- sequential multi-transcript ingestion keeps reviewed rules, supersedes stale rules, and preserves assistant output as logs
 
 The eval suite also includes a dogfood case in `evals/cases/dogfood_self_update.jsonl`, where this project records its own tool evidence scoring, structured conflict, and eval scenario work as candidate cognition without allowing assistant output into core memory.
 
@@ -115,3 +116,13 @@ python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
 ```
 
 The eval intentionally does not discover or bulk-read historical transcripts.
+
+## Validation And CI
+
+`validate_state.py` validates the bundled JSON/JSONL state files with a small standard-library schema subset:
+
+```bash
+python .project_cognition/scripts/validate_state.py
+```
+
+The recommended CI check set is Python compilation, schema validation, governance evals, and whitespace checks. These checks only use sanitized fixtures and do not scan real history directories.

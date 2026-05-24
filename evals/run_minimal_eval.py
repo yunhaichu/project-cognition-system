@@ -19,6 +19,12 @@ LONG_DOGFOOD_FILE = REPO_ROOT / "evals" / "cases" / "dogfood_long_development.js
 GOLDEN_FILE = REPO_ROOT / "evals" / "golden" / "minimal_invariants.json"
 PREDICATE_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "predicate_fixtures.json"
 OBJECT_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "object_fixtures.json"
+MULTI_TRANSCRIPT_FILES = [
+    REPO_ROOT / "evals" / "cases" / "multi_transcript" / "session1_establish_rule.jsonl",
+    REPO_ROOT / "evals" / "cases" / "multi_transcript" / "session2_conflicting_rule.jsonl",
+    REPO_ROOT / "evals" / "cases" / "multi_transcript" / "session3_deferred_conflict_a.jsonl",
+    REPO_ROOT / "evals" / "cases" / "multi_transcript" / "session4_deferred_conflict_b.jsonl",
+]
 sys.path.insert(0, str(REPO_ROOT / ".project_cognition" / "scripts"))
 from common import canonical_object, normalize_predicate  # noqa: E402
 PREDICATES = {
@@ -178,6 +184,69 @@ def run_minimal_pipeline(project_root: Path) -> dict[str, Any]:
         "world_state": run_script(project_root, "build_world_state.py"),
         "unresolved": run_script(project_root, "resolve_conflict.py", ["--list-unresolved"]),
     }
+
+
+def run_cognition_pipeline(project_root: Path) -> dict[str, Any]:
+    return {
+        "extract": run_script(project_root, "extract_candidates.py"),
+        "score": run_script(project_root, "score_candidates.py"),
+        "conflicts": run_script(project_root, "detect_conflicts.py"),
+        "world_state": run_script(project_root, "build_world_state.py"),
+    }
+
+
+def proposal_review(project_root: Path, claim: str, evidence: list[str]) -> dict[str, Any]:
+    proposal = run_script(
+        project_root,
+        "propose_update.py",
+        [
+            "--claim",
+            claim,
+            "--category",
+            "constraint",
+            "--confidence",
+            "98",
+            "--reason",
+            "E2E multi-transcript review fixture.",
+            "--suggested-action",
+            "accept",
+            "--should-update-world-state",
+            "yes",
+            "--subject",
+            "assistant_output",
+            "--predicate",
+            "enter_core_memory",
+            "--object",
+            "assistant final output",
+            "--scope",
+            "project",
+            "--modality",
+            "must_not",
+            *sum([["--evidence", item] for item in evidence], []),
+        ],
+    )
+    return run_script(
+        project_root,
+        "review_update.py",
+        ["--proposal-id", proposal["id"], "--action", "accept", "--note", "Accepted by E2E multi-transcript eval."],
+    )
+
+
+def find_item(items: list[dict[str, Any]], *needles: str) -> dict[str, Any]:
+    lowered_needles = [needle.lower() for needle in needles]
+    for item in items:
+        haystack = json.dumps(item, ensure_ascii=False).lower()
+        if all(needle in haystack for needle in lowered_needles):
+            return item
+    raise AssertionError(f"Item not found for needles: {needles}")
+
+
+def find_conflict(conflicts: list[dict[str, Any]], *item_ids: str) -> dict[str, Any]:
+    wanted = set(item_ids)
+    for conflict in conflicts:
+        if {conflict.get("item_a"), conflict.get("item_b")} == wanted:
+            return conflict
+    raise AssertionError(f"Conflict not found for items: {item_ids}")
 
 
 def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[str, bool]:
@@ -669,6 +738,69 @@ def check_multi_session_evolution(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_e2e_multi_transcript(project_root: Path) -> dict[str, bool]:
+    for index, transcript in enumerate(MULTI_TRANSCRIPT_FILES, 1):
+        run_script(
+            project_root,
+            "ingest_session.py",
+            ["--input", str(transcript), "--session-id", f"e2e_multi_{index}", "--source", "eval_multi_transcript"],
+        )
+        run_cognition_pipeline(project_root)
+        if index == 1:
+            items = read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])
+            source_item = find_item(items, "assistant final output", "core memory")
+            proposal_review(
+                project_root,
+                "Assistant final output must not enter core memory.",
+                list(source_item.get("evidence", [])),
+            )
+            run_cognition_pipeline(project_root)
+
+    table_path = project_root / ".project_cognition" / "distilled" / "confidence_table.json"
+    conflicts_path = project_root / ".project_cognition" / "raw" / "conflicts.jsonl"
+    items = read_json(table_path).get("items", [])
+    accepted_rule = find_item(items, "assistant final output must not enter core memory")
+    stale_rule = find_item(items, "临时错误说法", "assistant final output")
+    conflicts = read_jsonl(conflicts_path)
+    first_conflict = find_conflict(conflicts, accepted_rule["id"], stale_rule["id"])
+    choose_action = "choose-a" if first_conflict["item_a"] == accepted_rule["id"] else "choose-b"
+    run_script(
+        project_root,
+        "resolve_conflict.py",
+        ["--conflict-id", first_conflict["id"], "--action", choose_action, "--reason", "E2E multi-transcript accepted rule wins."],
+    )
+
+    items = read_json(table_path).get("items", [])
+    world_state_yes = find_item(items, "待裁决规则 A", "WORLD_STATE")
+    world_state_no = find_item(items, "待裁决规则 B", "WORLD_STATE")
+    run_cognition_pipeline(project_root)
+    conflicts = read_jsonl(conflicts_path)
+    deferred_conflict = find_conflict(conflicts, world_state_yes["id"], world_state_no["id"])
+    run_script(
+        project_root,
+        "resolve_conflict.py",
+        ["--conflict-id", deferred_conflict["id"], "--action", "defer", "--reason", "E2E multi-transcript keeps unresolved world-state update conflict blocked."],
+    )
+    final_result = run_script(project_root, "build_world_state.py")
+    final_items = {row["id"]: row for row in read_json(table_path).get("items", [])}
+    compact = (project_root / ".project_cognition" / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8")
+    assistant_outputs = [
+        row
+        for output_file in (project_root / ".project_cognition" / "logs" / "outputs").glob("e2e_multi_*.jsonl")
+        for row in read_jsonl(output_file)
+    ]
+    return {
+        "e2e_transcripts_ingested": len(read_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl")) >= 4,
+        "e2e_reviewed_rule_enters_compact": final_result.get("compact_structured_count", 0) >= 1
+        and "assistant final output" in compact.lower(),
+        "e2e_stale_rule_superseded": final_items[stale_rule["id"]].get("status") == "superseded"
+        and not final_items[stale_rule["id"]].get("include_in_world_state"),
+        "e2e_deferred_conflict_blocked": not final_items[world_state_yes["id"]].get("include_in_world_state")
+        and not final_items[world_state_no["id"]].get("include_in_world_state"),
+        "e2e_assistant_outputs_logged_only": len(assistant_outputs) == 4,
+    }
+
+
 def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
     steps = {
         "ingest": run_script(
@@ -779,6 +911,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("object_key_conflict", check_object_key_conflict),
         ("resolve_audit_summary", check_resolve_audit_summary),
         ("multi_session_evolution", check_multi_session_evolution),
+        ("e2e_multi_transcript", check_e2e_multi_transcript),
         ("dogfood_self_update", check_dogfood_self_update),
         ("long_dogfood_transcript", check_long_dogfood_transcript),
     ]:

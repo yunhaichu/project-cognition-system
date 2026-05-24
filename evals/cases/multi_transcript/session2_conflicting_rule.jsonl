@@ -1,0 +1,2 @@
+{"role":"user","content":"临时错误说法：assistant final output 可以进入核心记忆 core memory。这个说法应与上一轮长期规则产生冲突，并且不能自动覆盖旧规则。","timestamp":"2026-05-24T14:00:00Z"}
+{"role":"assistant","content":"这条说法会被作为候选处理，不能直接覆盖旧规则。","timestamp":"2026-05-24T14:01:00Z"}

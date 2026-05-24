@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CognitionConflict",
+  "type": "object",
+  "required": ["id", "timestamp", "type", "item_a", "item_b", "description", "severity", "resolution", "chosen_side", "reason"],
+  "properties": {
+    "id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "type": {"type": "string", "enum": ["user_vs_user", "user_vs_agent", "old_vs_new"]},
+    "item_a": {"type": "string"},
+    "item_b": {"type": "string"},
+    "description": {"type": "string"},
+    "severity": {"type": "integer", "minimum": 0, "maximum": 100},
+    "resolution": {"type": "string", "enum": ["unresolved", "resolved", "deferred"]},
+    "chosen_side": {"type": "string"},
+    "reason": {"type": "string"},
+    "resolved_at": {"type": "string"},
+    "audit_summary": {
+      "type": "object",
+      "properties": {
+        "action": {"type": "string"},
+        "chosen": {"type": "string"},
+        "loser": {"type": "string"},
+        "supersedes": {"type": "array", "items": {"type": "string"}},
+        "blocked_status": {"type": "object"}
+      }
+    }
+  }
+}

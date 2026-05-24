@@ -1,0 +1,3 @@
+{"role":"user","content":"长期规则：assistant final output 必须只能作为日志保存，不能进入 core memory 或 WORLD_STATE。这个规则用于防止 Agent 输出污染核心认知。","timestamp":"2026-05-24T13:00:00Z"}
+{"role":"assistant","content":"我会把 assistant final output 只作为日志，不写入核心认知。","timestamp":"2026-05-24T13:01:00Z"}
+{"role":"tool","name":"git status","content":"On branch main\nnothing to commit, working tree clean","timestamp":"2026-05-24T13:02:00Z"}

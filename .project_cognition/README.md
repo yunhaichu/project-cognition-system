@@ -18,4 +18,6 @@ Compact structured cognition is intentionally narrow: accepted project-scope mus
 
 Structured cognition includes a normalized predicate and an `object_key` for local equivalent-object matching. Real transcript dogfood must be passed explicitly to eval scripts; hooks should not scan historical transcripts by default.
 
-Conflict resolution writes an audit summary. Eval fixtures cover predicate/object normalization, negative golden cases, and multi-session state evolution.
+Conflict resolution writes an audit summary. Eval fixtures cover predicate/object normalization, negative golden cases, multi-session state evolution, and end-to-end multi-transcript ingestion.
+
+Run `scripts/validate_state.py` to validate bundled JSON/JSONL state files. CI should run validation and governance evals against sanitized fixtures only.

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Decision",
+  "type": "object",
+  "required": ["id", "timestamp", "decision", "reason", "evidence_utterance_ids", "confidence", "reversible", "status"],
+  "properties": {
+    "id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "decision": {"type": "string"},
+    "reason": {"type": "string"},
+    "evidence_utterance_ids": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+    "reversible": {"type": "boolean"},
+    "status": {"type": "string", "enum": ["active", "superseded", "rejected"]}
+  }
+}

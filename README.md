@@ -80,6 +80,12 @@ python .project_cognition/scripts/codex_post_hook.py \
   --session-id sample_demo
 ```
 
+校验当前认知状态文件结构：
+
+```bash
+python .project_cognition/scripts/validate_state.py
+```
+
 运行最小评测：
 
 ```bash
@@ -88,17 +94,21 @@ python evals/run_minimal_eval.py
 
 评测会在临时项目副本中验证：用户原话进入 raw、assistant 输出只进 logs、工具结果进入 `raw/tool_evidence.jsonl`、候选认知带结构化字段、tool-only 候选默认需要审查后才能进入 `WORLD_STATE.md`。
 
-当前 eval 还覆盖五个治理场景：用户推翻 agent、工具结果推翻 agent、同一规则不同 scope 不冲突、冲突 resolve 后 loser 被 superseded、accepted structured cognition 被渲染进 `WORLD_STATE.md`。
+当前 eval 还覆盖治理场景：用户推翻 agent、工具结果推翻 agent、同一规则不同 scope 不冲突、冲突 resolve 后 loser 被 superseded、accepted structured cognition 被渲染进 `WORLD_STATE.md`、多会话状态演化、以及端到端 multi-transcript 导入回归。
 
 eval 还会读取 `evals/golden/minimal_invariants.json`，用 golden invariants 固化关键行为，而不是全文比对文案。当前 golden 覆盖 compact 字符预算、核心检查项、冲突场景、compact structured summary 和 dogfood 自测。
 
 `evals/golden/predicate_fixtures.json` 和 `evals/golden/object_fixtures.json` 分别固定 predicate 归一化和 object_key 归一化行为。eval 还包含 multi-session regression：旧规则被 superseded 后不能复活，deferred conflict 继续阻断双方，compact 只吸收当前高优先级规则。
+
+端到端 multi-transcript fixture 位于 `evals/cases/multi_transcript/`，用于验证连续导入多个 session 后，reviewed 规则进入 compact、过时冲突规则被 superseded、deferred 冲突继续阻断双方，且 assistant 输出仍只进入日志。
 
 可选地，可以显式传入一段真实 Codex/Hermes transcript 做 dogfood，不会自动扫描历史目录：
 
 ```bash
 python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
 ```
+
+建议 CI 检查集为 `py_compile`、`validate_state.py`、`run_minimal_eval.py` 和 `git diff --check`。这些检查只使用脱敏 fixture，不扫描真实历史目录。
 
 ### Hook 模型
 
@@ -262,6 +272,12 @@ python .project_cognition/scripts/codex_post_hook.py \
   --session-id sample_demo
 ```
 
+Validate the current cognition state files:
+
+```bash
+python .project_cognition/scripts/validate_state.py
+```
+
 Run the minimal eval:
 
 ```bash
@@ -270,17 +286,21 @@ python evals/run_minimal_eval.py
 
 The eval runs in a temporary project copy and checks that user utterances enter raw evidence, assistant output stays in logs, tool output is normalized into `raw/tool_evidence.jsonl`, candidates carry structured fields, and tool-only candidates require review before entering `WORLD_STATE.md`.
 
-The current eval also covers five governance scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the losing side, and accepted structured cognition rendering into `WORLD_STATE.md`.
+The current eval also covers governance scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the losing side, accepted structured cognition rendering into `WORLD_STATE.md`, multi-session state evolution, and end-to-end multi-transcript ingestion regression.
 
 The eval also reads `evals/golden/minimal_invariants.json`. Golden invariants lock down behavior without full-text markdown snapshots. They cover the compact character budget, required checks, conflict scenarios, compact structured summary, and dogfood self-test behavior.
 
 `evals/golden/predicate_fixtures.json` and `evals/golden/object_fixtures.json` lock down predicate normalization and object_key normalization. The eval suite also includes multi-session regression: superseded rules must not revive, deferred conflicts keep both sides blocked, and compact state only absorbs the current high-priority rule.
+
+End-to-end multi-transcript fixtures live under `evals/cases/multi_transcript/`. They verify that sequential session ingestion can move a reviewed rule into compact state, supersede a stale conflicting rule, keep deferred conflicts blocked, and still store assistant output only in logs.
 
 Optionally, pass one explicit real Codex/Hermes transcript for dogfood. The eval does not scan history directories:
 
 ```bash
 python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
 ```
+
+The recommended CI check set is `py_compile`, `validate_state.py`, `run_minimal_eval.py`, and `git diff --check`. These checks use only sanitized fixtures and do not scan real history directories.
 
 ### Hook Model
 
