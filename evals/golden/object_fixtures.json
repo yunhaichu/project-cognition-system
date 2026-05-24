@@ -1,0 +1,14 @@
+[
+  {"text": "assistant final output", "expected": "assistant_output"},
+  {"text": "agent output", "expected": "assistant_output"},
+  {"text": "最终输出", "expected": "assistant_output"},
+  {"text": "核心事实", "expected": "core_memory"},
+  {"text": "core memory", "expected": "core_memory"},
+  {"text": "WORLD_STATE.md", "expected": "world_state"},
+  {"text": "项目世界观", "expected": "world_state"},
+  {"text": "全部上下文", "expected": "history_context"},
+  {"text": "raw/logs", "expected": "raw_logs"},
+  {"text": "AGENTS.md", "expected": "agents_md"},
+  {"text": "用户画像", "expected": "user_profile"},
+  {"text": "pytest suite", "expected": "test_suite"}
+]

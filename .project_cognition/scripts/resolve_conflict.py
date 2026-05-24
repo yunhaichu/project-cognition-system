@@ -51,6 +51,8 @@ def resolve(conflict_id: str, action: str, reason: str) -> dict[str, Any]:
         raise SystemExit(f"Conflict not found: {conflict_id}")
 
     items = confidence_table_items()
+    chosen = ""
+    losing = ""
     if action == "choose-a":
         chosen = str(matched.get("item_a", ""))
         losing = str(matched.get("item_b", ""))
@@ -75,6 +77,23 @@ def resolve(conflict_id: str, action: str, reason: str) -> dict[str, Any]:
         matched["reason"] = reason
 
     matched["resolved_at"] = now_iso()
+    item_by_id = {item.get("id"): item for item in items}
+    blocked_ids = [str(matched.get("item_a", "")), str(matched.get("item_b", ""))]
+    matched["audit_summary"] = {
+        "action": action,
+        "chosen": chosen,
+        "loser": losing,
+        "supersedes": item_by_id.get(chosen, {}).get("structured", {}).get("supersedes", []) if chosen else [],
+        "blocked_status": {
+            item_id: {
+                "status": item_by_id.get(item_id, {}).get("status"),
+                "include_in_world_state": bool(item_by_id.get(item_id, {}).get("include_in_world_state")),
+                "superseded_by": item_by_id.get(item_id, {}).get("superseded_by", ""),
+            }
+            for item_id in blocked_ids
+            if item_id
+        },
+    }
     write_jsonl(CONFLICTS, conflicts)
     save_confidence_table(items)
     return matched

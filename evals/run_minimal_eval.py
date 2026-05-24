@@ -15,8 +15,10 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CASE_FILE = REPO_ROOT / "evals" / "cases" / "minimal_governance_session.jsonl"
 DOGFOOD_FILE = REPO_ROOT / "evals" / "cases" / "dogfood_self_update.jsonl"
+LONG_DOGFOOD_FILE = REPO_ROOT / "evals" / "cases" / "dogfood_long_development.jsonl"
 GOLDEN_FILE = REPO_ROOT / "evals" / "golden" / "minimal_invariants.json"
 PREDICATE_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "predicate_fixtures.json"
+OBJECT_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "object_fixtures.json"
 sys.path.insert(0, str(REPO_ROOT / ".project_cognition" / "scripts"))
 from common import canonical_object, normalize_predicate  # noqa: E402
 PREDICATES = {
@@ -197,6 +199,9 @@ def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[st
         and any(row.get("structured", {}).get("predicate") != "states" for row in items),
         "predicate_fixtures_pass": all(
             normalize_predicate(None, row["text"]) == row["expected"] for row in read_json(PREDICATE_FIXTURES_FILE)
+        ),
+        "object_fixtures_pass": all(
+            canonical_object(row["text"]) == row["expected"] for row in read_json(OBJECT_FIXTURES_FILE)
         ),
         "object_keys_canonicalized": bool(items) and all(row.get("structured", {}).get("object_key") for row in items),
         "candidates_have_structured_fields": bool(items) and all("structured" in row for row in items),
@@ -548,6 +553,122 @@ def check_object_key_conflict(project_root: Path) -> dict[str, bool]:
     return {"equivalent_objects_conflict": result["new_conflicts"] == 1}
 
 
+def check_resolve_audit_summary(project_root: Path) -> dict[str, bool]:
+    winner = item(
+        "audit_winner",
+        claim="Assistant output must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+    )
+    loser = item(
+        "audit_loser",
+        claim="Agent output may enter core memory.",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="agent output",
+        confidence=74,
+        status="candidate",
+    )
+    set_items(project_root, [winner, loser])
+    run_script(project_root, "detect_conflicts.py")
+    conflict = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")[0]
+    reviewed = run_script(
+        project_root,
+        "resolve_conflict.py",
+        ["--conflict-id", conflict["id"], "--action", "choose-a", "--reason", "Audit summary eval."],
+    )
+    audit = reviewed.get("audit_summary", {})
+    blocked = audit.get("blocked_status", {})
+    return {
+        "audit_chosen_loser_present": audit.get("chosen") == "audit_winner" and audit.get("loser") == "audit_loser",
+        "audit_supersedes_present": "audit_loser" in audit.get("supersedes", []),
+        "audit_blocked_status_present": blocked.get("audit_loser", {}).get("status") == "superseded"
+        and blocked.get("audit_loser", {}).get("include_in_world_state") is False,
+    }
+
+
+def check_multi_session_evolution(project_root: Path) -> dict[str, bool]:
+    current_rule = item(
+        "session1_current_rule",
+        claim="Session 1: assistant output must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=98,
+    )
+    stale_rule = item(
+        "session2_stale_rule",
+        claim="Session 2: agent output may enter core memory.",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="agent output",
+        confidence=74,
+        status="candidate",
+    )
+    set_items(project_root, [current_rule, stale_rule])
+    run_script(project_root, "detect_conflicts.py")
+    conflict = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")[0]
+    run_script(
+        project_root,
+        "resolve_conflict.py",
+        ["--conflict-id", conflict["id"], "--action", "choose-a", "--reason", "Multi-session user rule wins."],
+    )
+
+    deferred_a = item(
+        "session3_deferred_a",
+        claim="Session 3: WORLD_STATE must be updated automatically.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="update_world_state",
+        object_value="world state",
+        confidence=96,
+    )
+    deferred_b = item(
+        "session3_deferred_b",
+        claim="Session 3: WORLD_STATE must not be updated automatically.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="world_state",
+        predicate="update_world_state",
+        object_value="WORLD_STATE.md",
+        confidence=96,
+    )
+    existing = read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])
+    set_items(project_root, [*existing, deferred_a, deferred_b])
+    run_script(project_root, "detect_conflicts.py")
+    conflicts = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")
+    deferred_conflict = next(row for row in conflicts if {row["item_a"], row["item_b"]} == {"session3_deferred_a", "session3_deferred_b"})
+    run_script(project_root, "resolve_conflict.py", ["--conflict-id", deferred_conflict["id"], "--action", "defer", "--reason", "Keep blocked."])
+    result = run_script(project_root, "build_world_state.py")
+    rows = {row["id"]: row for row in read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])}
+    compact = (project_root / ".project_cognition" / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8")
+    return {
+        "old_rule_not_revived": rows["session2_stale_rule"].get("status") == "superseded"
+        and not rows["session2_stale_rule"].get("include_in_world_state"),
+        "deferred_not_leak": not rows["session3_deferred_a"].get("include_in_world_state")
+        and not rows["session3_deferred_b"].get("include_in_world_state"),
+        "compact_uses_current_rule": result.get("compact_structured_count", 0) >= 1
+        and "assistant final output" in compact.lower()
+        and "WORLD_STATE must be updated automatically" not in compact,
+    }
+
+
 def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
     steps = {
         "ingest": run_script(
@@ -568,6 +689,32 @@ def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
         "self_update_terms_extracted": all(term in table_text for term in ["tool evidence scoring", "structured conflict", "eval scenarios"]),
         "assistant_output_still_log": steps["ingest"]["counts"]["assistant"] == 1 and len(assistant_outputs) == 1,
         "tool_git_evidence_ingested": any(row.get("evidence_kind") == "git_result" for row in tool_evidence),
+    }
+
+
+def check_long_dogfood_transcript(project_root: Path) -> dict[str, bool]:
+    steps = {
+        "ingest": run_script(
+            project_root,
+            "ingest_session.py",
+            ["--input", str(LONG_DOGFOOD_FILE), "--session-id", "long_dogfood", "--source", "eval"],
+        ),
+        "extract": run_script(project_root, "extract_candidates.py"),
+        "score": run_script(project_root, "score_candidates.py"),
+        "conflicts": run_script(project_root, "detect_conflicts.py"),
+        "world_state": run_script(project_root, "build_world_state.py"),
+    }
+    cognition_root = project_root / ".project_cognition"
+    table_text = json.dumps(read_json(cognition_root / "distilled" / "confidence_table.json"), ensure_ascii=False)
+    assistant_outputs = read_jsonl(cognition_root / "logs" / "outputs" / "long_dogfood.jsonl")
+    tool_evidence = read_jsonl(cognition_root / "raw" / "tool_evidence.jsonl")
+    return {
+        "long_dogfood_terms_extracted": all(
+            term in table_text for term in ["object fixture", "multi-session regression", "resolve audit summary"]
+        ),
+        "long_dogfood_assistant_logged": steps["ingest"]["counts"]["assistant"] == len(assistant_outputs) == 2,
+        "long_dogfood_tool_evidence": any(row.get("evidence_kind") == "git_result" for row in tool_evidence)
+        and any(row.get("evidence_kind") == "test_result" for row in tool_evidence),
     }
 
 
@@ -630,7 +777,10 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("negative_memory_filters", check_negative_memory_filters),
         ("deferred_conflict_blocks", check_deferred_conflict_blocks),
         ("object_key_conflict", check_object_key_conflict),
+        ("resolve_audit_summary", check_resolve_audit_summary),
+        ("multi_session_evolution", check_multi_session_evolution),
         ("dogfood_self_update", check_dogfood_self_update),
+        ("long_dogfood_transcript", check_long_dogfood_transcript),
     ]:
         with tempfile.TemporaryDirectory(prefix=f"pcs_eval_{name}_") as temp_dir:
             project_root = make_project_copy(temp_dir)

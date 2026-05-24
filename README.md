@@ -92,6 +92,8 @@ python evals/run_minimal_eval.py
 
 eval 还会读取 `evals/golden/minimal_invariants.json`，用 golden invariants 固化关键行为，而不是全文比对文案。当前 golden 覆盖 compact 字符预算、核心检查项、冲突场景、compact structured summary 和 dogfood 自测。
 
+`evals/golden/predicate_fixtures.json` 和 `evals/golden/object_fixtures.json` 分别固定 predicate 归一化和 object_key 归一化行为。eval 还包含 multi-session regression：旧规则被 superseded 后不能复活，deferred conflict 继续阻断双方，compact 只吸收当前高优先级规则。
+
 可选地，可以显式传入一段真实 Codex/Hermes transcript 做 dogfood，不会自动扫描历史目录：
 
 ```bash
@@ -126,6 +128,8 @@ python evals/run_minimal_eval.py --dogfood-transcript path/to/session.jsonl
 `predicate` 使用小型枚举并由本地规则归一化，例如 `enter_core_memory / store_log / create / render / override / require_review / inject_context / call_llm / read_source / update_world_state / score_evidence / resolve_conflict / test_passed`。保留 `states / requires / observed / infers` 用于兼容和兜底。
 
 结构化对象还带 `object_key`，用于把 `assistant final answer`、`agent output`、`最终输出` 等本地归一到同一冲突对象。当前仍是规则归一化，不调用模型。
+
+`resolve_conflict.py` 会在裁决结果中输出 `audit_summary`，包含 chosen、loser、supersedes 和双方阻断状态，方便人工审查。
 
 评分层会单独索引 `tool_evidence`。测试结果、git 结果和文件系统结果作为确定性工具证据加权高于 agent interpretation；网页结果和普通命令输出权重较低。tool-only 候选即使置信较高，也默认需要 review 后才可进入核心世界状态。
 
@@ -270,6 +274,8 @@ The current eval also covers five governance scenarios: user evidence overriding
 
 The eval also reads `evals/golden/minimal_invariants.json`. Golden invariants lock down behavior without full-text markdown snapshots. They cover the compact character budget, required checks, conflict scenarios, compact structured summary, and dogfood self-test behavior.
 
+`evals/golden/predicate_fixtures.json` and `evals/golden/object_fixtures.json` lock down predicate normalization and object_key normalization. The eval suite also includes multi-session regression: superseded rules must not revive, deferred conflicts keep both sides blocked, and compact state only absorbs the current high-priority rule.
+
 Optionally, pass one explicit real Codex/Hermes transcript for dogfood. The eval does not scan history directories:
 
 ```bash
@@ -304,6 +310,8 @@ Cognition candidates keep a readable `claim` and a minimal structured object: `s
 `predicate` is normalized to a small enum by local rules, including `enter_core_memory / store_log / create / render / override / require_review / inject_context / call_llm / read_source / update_world_state / score_evidence / resolve_conflict / test_passed`. `states / requires / observed / infers` remain as compatibility and fallback predicates.
 
 Structured objects also carry `object_key`, a local canonical key that can treat `assistant final answer`, `agent output`, and `最终输出` as the same conflict object. This remains rule-based and does not call a model.
+
+`resolve_conflict.py` returns an `audit_summary` with chosen side, loser, supersedes, and blocked status for review.
 
 The scoring layer indexes `tool_evidence` directly. Test results, git results, and filesystem results get stronger deterministic evidence weight than agent interpretation; web results and generic command output get lower weight. Tool-only candidates still require review before entering core world state.
 

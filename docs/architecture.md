@@ -44,6 +44,8 @@ The structured fields are intentionally small. They give conflict detection and 
 
 Structured objects also include `object_key`, a local canonical key for equivalent objects. For example, `assistant final answer`, `agent output`, and `最终输出` can all resolve to the same conflict object without model calls.
 
+Object fixtures live in `evals/golden/object_fixtures.json`, so object canonicalization can grow without silently merging or splitting important concepts.
+
 Conflict detection compares structured fields before falling back to keyword topics. Opposite modality for the same `subject / predicate / object / scope` is a conflict. Different scopes are kept separate, so a project-level prohibition does not automatically conflict with a global-user-level allowance.
 
 ## Conflict Lifecycle
@@ -55,6 +57,8 @@ Conflict detection compares structured fields before falling back to keyword top
 - `mark-resolved`: record that a conflict was resolved externally.
 
 After resolution, rerun `score_candidates.py` and `build_world_state.py`.
+
+Resolved conflicts include an `audit_summary` with chosen side, loser, supersedes, and blocked status for both sides. This keeps human review inspectable without reading the full confidence table.
 
 ## World State Rendering
 
@@ -92,6 +96,15 @@ It also checks five drift scenarios: user evidence overriding agent inference, t
 Golden invariants live in `evals/golden/minimal_invariants.json`. They assert behavior such as required checks, scenario coverage, and compact character budget without freezing the exact Markdown prose.
 
 Predicate fixtures live in `evals/golden/predicate_fixtures.json`. They test compound Chinese/English sentences so regex ordering regressions are visible.
+
+The regression suite includes negative and multi-session cases:
+
+- assistant-only claims do not enter core memory
+- web results do not outrank user utterances
+- low-confidence accepted cognition and `user_global` cognition do not enter project compact state
+- deferred conflicts keep both sides blocked
+- superseded rules do not revive in later sessions
+- compact state keeps only the current high-priority project rule
 
 The eval suite also includes a dogfood case in `evals/cases/dogfood_self_update.jsonl`, where this project records its own tool evidence scoring, structured conflict, and eval scenario work as candidate cognition without allowing assistant output into core memory.
 

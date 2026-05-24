@@ -17,3 +17,5 @@ Key runtime files:
 Compact structured cognition is intentionally narrow: accepted project-scope must/must_not rows with confidence 95 or higher, capped at 3 rows.
 
 Structured cognition includes a normalized predicate and an `object_key` for local equivalent-object matching. Real transcript dogfood must be passed explicitly to eval scripts; hooks should not scan historical transcripts by default.
+
+Conflict resolution writes an audit summary. Eval fixtures cover predicate/object normalization, negative golden cases, and multi-session state evolution.
