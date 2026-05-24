@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile Python scripts
+        run: python -m py_compile .project_cognition/scripts/*.py evals/run_minimal_eval.py
+
+      - name: Validate bundled cognition state
+        run: python .project_cognition/scripts/validate_state.py
+
+      - name: Run governance evals
+        run: python evals/run_minimal_eval.py
+
+      - name: Check whitespace
+        run: git diff --check
