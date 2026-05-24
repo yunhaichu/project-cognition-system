@@ -1,0 +1,41 @@
+{
+  "summary_version": 1,
+  "generated_at": "2026-05-24",
+  "source": "explicit local Codex transcript",
+  "raw_transcript_committed": false,
+  "source_path_committed": false,
+  "source_path_redacted": true,
+  "transcript_sha256_12": "812f620ee599",
+  "pipeline": {
+    "ingest_counts": {
+      "user": 63,
+      "assistant": 312,
+      "tool": 1113,
+      "tool_evidence": 1113,
+      "ignored": 0,
+      "duplicates": 0
+    },
+    "candidate_count": 256,
+    "candidates_added": 200,
+    "scored_total": 200,
+    "include_in_world_state": 148,
+    "new_conflicts": 721,
+    "total_conflicts": 721,
+    "world_state_included_count": 89,
+    "world_state_characters": 1304,
+    "compact_characters": 358,
+    "validation_ok": true,
+    "validation_cross_reference_errors": 0
+  },
+  "governance_checks": {
+    "user_messages_ingested_as_raw_evidence": true,
+    "assistant_outputs_logged_only": true,
+    "tool_evidence_ingested": true,
+    "candidates_have_structured_fields": true,
+    "state_validation_passed": true
+  },
+  "notes": [
+    "No raw transcript text is included in this summary.",
+    "The transcript was selected by an explicit hook-recorded path, not by scanning history directories."
+  ]
+}

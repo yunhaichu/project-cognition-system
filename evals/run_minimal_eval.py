@@ -123,6 +123,11 @@ def run_script(project_root: Path, script_name: str, args: list[str] | None = No
         return stdout
 
 
+def run_script_status(project_root: Path, script_name: str, args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, str(project_root / ".project_cognition" / "scripts" / script_name), *(args or [])]
+    return subprocess.run(command, cwd=project_root, text=True, capture_output=True, check=False)
+
+
 def item(
     item_id: str,
     *,
@@ -801,6 +806,165 @@ def check_e2e_multi_transcript(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_cross_reference_validation(project_root: Path) -> dict[str, bool]:
+    cognition_root = project_root / ".project_cognition"
+    utterance = {
+        "id": "utt_valid",
+        "session_id": "ref_session",
+        "timestamp": "2026-05-24T17:00:00Z",
+        "text": "User evidence anchors the reviewed rule.",
+        "source": "eval",
+        "importance_score": 90,
+        "signals": {
+            "long_form": False,
+            "repeated": False,
+            "explicit_preference": True,
+            "explicit_rejection": False,
+            "strong_emphasis": False,
+        },
+        "linked_topics": ["validation"],
+        "notes": "",
+    }
+    interpretation = {
+        "id": "interp_valid",
+        "session_id": "ref_session",
+        "timestamp": "2026-05-24T17:01:00Z",
+        "based_on_utterance_ids": ["utt_valid"],
+        "agent_understanding": "The user wants references to remain auditable.",
+        "inferred_goals": [],
+        "inferred_constraints": [],
+        "risks": [],
+        "confidence": 70,
+        "possible_misreadings": [],
+        "status": "candidate",
+    }
+    tool_log = {
+        "id": "tool_valid",
+        "session_id": "ref_session",
+        "timestamp": "2026-05-24T17:02:00Z",
+        "name": "pytest",
+        "content": "1 passed",
+    }
+    tool_evidence = {
+        "id": "tool_ev_valid",
+        "session_id": "ref_session",
+        "timestamp": "2026-05-24T17:02:00Z",
+        "tool_name": "pytest",
+        "source_log_id": "tool_valid",
+        "source": "tool",
+        "evidence_kind": "test_result",
+        "deterministic": True,
+        "outcome": "passed",
+        "content_summary": "1 passed",
+        "linked_topics": ["validation"],
+        "notes": "",
+    }
+    item_a = item(
+        "cog_valid_a",
+        claim="Validated cognition references user and tool evidence.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="validator",
+        predicate="requires",
+        object_value="cross references",
+    )
+    item_a["evidence"] = ["utt_valid", "tool_ev_valid"]
+    item_a["structured"]["source_refs"] = ["utt_valid", "tool_ev_valid"]
+    item_a["structured"]["supersedes"] = ["cog_valid_b"]
+    item_b = item(
+        "cog_valid_b",
+        claim="Older cognition is superseded by validated cognition.",
+        source_type="agent_interpretation",
+        modality="should",
+        scope="project",
+        subject="validator",
+        predicate="requires",
+        object_value="cross references",
+        status="superseded",
+        confidence=65,
+    )
+    item_b["evidence"] = ["interp_valid"]
+    item_b["structured"]["source_refs"] = ["interp_valid"]
+    item_b["include_in_world_state"] = False
+    item_b["superseded_by"] = "cog_valid_a"
+    conflict = {
+        "id": "conflict_valid",
+        "timestamp": "2026-05-24T17:03:00Z",
+        "type": "user_vs_agent",
+        "item_a": "cog_valid_a",
+        "item_b": "cog_valid_b",
+        "description": "Reference validation fixture conflict.",
+        "severity": 80,
+        "resolution": "resolved",
+        "chosen_side": "cog_valid_a",
+        "reason": "Fixture chooses user-backed item.",
+        "resolved_at": "2026-05-24T17:04:00Z",
+        "audit_summary": {
+            "action": "choose-a",
+            "chosen": "cog_valid_a",
+            "loser": "cog_valid_b",
+            "supersedes": ["cog_valid_b"],
+            "blocked_status": {},
+        },
+    }
+    proposal = {
+        "id": "prop_valid",
+        "timestamp": "2026-05-24T17:05:00Z",
+        "claim": "Cross-reference validation should keep evidence auditable.",
+        "category": "constraint",
+        "evidence": ["utt_valid", "tool_ev_valid"],
+        "confidence": 95,
+        "reason": "Fixture proposal.",
+        "conflicts": ["conflict_valid"],
+        "suggested_action": "accept",
+        "should_update_world_state": True,
+        "status": "pending",
+        "structured": {
+            "subject": "validator",
+            "predicate": "requires",
+            "object": "cross references",
+            "object_key": "cross_references",
+            "scope": "project",
+            "modality": "must",
+            "valid_from": "2026-05-24T17:05:00Z",
+            "valid_until": None,
+            "source_refs": ["utt_valid", "tool_ev_valid"],
+            "confidence_reason": "Fixture proposal.",
+            "supersedes": ["cog_valid_b"],
+        },
+    }
+
+    write_jsonl(cognition_root / "raw" / "user_utterances.jsonl", [utterance])
+    write_jsonl(cognition_root / "raw" / "agent_interpretations.jsonl", [interpretation])
+    write_jsonl(cognition_root / "logs" / "tool_calls" / "ref_session.jsonl", [tool_log])
+    write_jsonl(cognition_root / "raw" / "tool_evidence.jsonl", [tool_evidence])
+    write_json(cognition_root / "distilled" / "confidence_table.json", {"items": [item_a, item_b]})
+    write_jsonl(cognition_root / "raw" / "conflicts.jsonl", [conflict])
+    write_jsonl(cognition_root / "proposals" / "proposed_updates.jsonl", [proposal])
+
+    valid_result = run_script(project_root, "validate_state.py")
+
+    broken_conflict = dict(conflict)
+    broken_conflict["item_b"] = "cog_missing"
+    write_jsonl(cognition_root / "raw" / "conflicts.jsonl", [broken_conflict])
+    dangling_conflict = run_script_status(project_root, "validate_state.py")
+
+    write_jsonl(cognition_root / "raw" / "conflicts.jsonl", [conflict])
+    broken_proposal = dict(proposal)
+    broken_proposal["evidence"] = ["tool_ev_missing"]
+    broken_proposal["structured"] = dict(proposal["structured"])
+    broken_proposal["structured"]["source_refs"] = ["tool_ev_missing"]
+    write_jsonl(cognition_root / "proposals" / "proposed_updates.jsonl", [broken_proposal])
+    dangling_evidence = run_script_status(project_root, "validate_state.py")
+
+    return {
+        "valid_references_pass": bool(valid_result.get("ok")),
+        "dangling_conflict_detected": dangling_conflict.returncode != 0 and "cog_missing" in dangling_conflict.stdout,
+        "dangling_evidence_detected": dangling_evidence.returncode != 0 and "tool_ev_missing" in dangling_evidence.stdout,
+    }
+
+
 def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
     steps = {
         "ingest": run_script(
@@ -912,6 +1076,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("resolve_audit_summary", check_resolve_audit_summary),
         ("multi_session_evolution", check_multi_session_evolution),
         ("e2e_multi_transcript", check_e2e_multi_transcript),
+        ("cross_reference_validation", check_cross_reference_validation),
         ("dogfood_self_update", check_dogfood_self_update),
         ("long_dogfood_transcript", check_long_dogfood_transcript),
     ]:
