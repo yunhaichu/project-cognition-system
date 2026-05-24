@@ -22,7 +22,28 @@
       "type": "object",
       "properties": {
         "subject": {"type": "string"},
-        "predicate": {"type": "string"},
+        "predicate": {
+          "type": "string",
+          "enum": [
+            "states",
+            "requires",
+            "observed",
+            "infers",
+            "enter_core_memory",
+            "store_log",
+            "create",
+            "render",
+            "override",
+            "require_review",
+            "inject_context",
+            "call_llm",
+            "read_source",
+            "update_world_state",
+            "score_evidence",
+            "resolve_conflict",
+            "test_passed"
+          ]
+        },
         "object": {"type": "string"},
         "scope": {"type": "string"},
         "modality": {"type": "string", "enum": ["must", "should", "may", "must_not", "is", "is_not", "unknown"]},

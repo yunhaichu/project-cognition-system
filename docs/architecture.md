@@ -40,6 +40,8 @@ Candidates keep a human-readable `claim`, but also carry a minimal structured ob
 
 The structured fields are intentionally small. They give conflict detection and review a stable handle without turning the MVP into a database or semantic platform.
 
+`predicate` is normalized to a small local enum. Specific predicates include `enter_core_memory`, `store_log`, `create`, `render`, `override`, `require_review`, `inject_context`, `call_llm`, `read_source`, `update_world_state`, `score_evidence`, `resolve_conflict`, and `test_passed`. The fallback predicates `states`, `requires`, `observed`, and `infers` are kept for compatibility and low-confidence extraction.
+
 Conflict detection compares structured fields before falling back to keyword topics. Opposite modality for the same `subject / predicate / object / scope` is a conflict. Different scopes are kept separate, so a project-level prohibition does not automatically conflict with a global-user-level allowance.
 
 ## Conflict Lifecycle
@@ -60,6 +62,8 @@ After resolution, rerun `score_candidates.py` and `build_world_state.py`.
 - accepted structured cognition: reviewed cognition objects rendered as bounded bullets.
 
 The compact file remains doctrine-heavy by design. Full state can expose accepted structured cognition without pushing raw evidence or logs into the prompt.
+
+`WORLD_STATE_COMPACT.md` may include a tiny high-priority structured cognition summary. Eligibility is deliberately strict: `accepted`, confidence at least 95, `scope=project`, and `modality=must/must_not`, capped at 3 rows.
 
 ## Why Not Just Memory?
 
@@ -82,3 +86,7 @@ Hooks should inject `WORLD_STATE_COMPACT.md` plus a compact user profile. Raw ev
 `evals/run_minimal_eval.py` runs the pipeline in a temporary project copy and checks the core governance invariants: user evidence goes to raw, assistant output stays in logs, tool output becomes formal evidence, candidates are structured, tool-only candidates require review, and compact state remains small.
 
 It also checks five drift scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the loser, and accepted structured cognition rendering into `WORLD_STATE.md`.
+
+Golden invariants live in `evals/golden/minimal_invariants.json`. They assert behavior such as required checks, scenario coverage, and compact character budget without freezing the exact Markdown prose.
+
+The eval suite also includes a dogfood case in `evals/cases/dogfood_self_update.jsonl`, where this project records its own tool evidence scoring, structured conflict, and eval scenario work as candidate cognition without allowing assistant output into core memory.

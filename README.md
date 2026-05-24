@@ -90,6 +90,8 @@ python evals/run_minimal_eval.py
 
 当前 eval 还覆盖五个治理场景：用户推翻 agent、工具结果推翻 agent、同一规则不同 scope 不冲突、冲突 resolve 后 loser 被 superseded、accepted structured cognition 被渲染进 `WORLD_STATE.md`。
 
+eval 还会读取 `evals/golden/minimal_invariants.json`，用 golden invariants 固化关键行为，而不是全文比对文案。当前 golden 覆盖 compact 字符预算、核心检查项、冲突场景、compact structured summary 和 dogfood 自测。
+
 ### Hook 模型
 
 会话开始时：
@@ -115,9 +117,13 @@ python evals/run_minimal_eval.py
 
 候选认知除了保留可读 `claim`，还会带一个最小结构化对象：`subject / predicate / object / scope / modality / valid_from / valid_until / source_refs / confidence_reason / supersedes`。
 
+`predicate` 使用小型枚举并由本地规则归一化，例如 `enter_core_memory / store_log / create / render / override / require_review / inject_context / call_llm / read_source / update_world_state / score_evidence / resolve_conflict / test_passed`。保留 `states / requires / observed / infers` 用于兼容和兜底。
+
 评分层会单独索引 `tool_evidence`。测试结果、git 结果和文件系统结果作为确定性工具证据加权高于 agent interpretation；网页结果和普通命令输出权重较低。tool-only 候选即使置信较高，也默认需要 review 后才可进入核心世界状态。
 
 冲突检测优先比较 structured fields。相同 `subject / predicate / object / scope` 下相反 `modality` 会被视为冲突；scope 不同的规则默认不冲突。
+
+`WORLD_STATE_COMPACT.md` 默认仍保持 doctrine-heavy，但可以吸收极少数高优先级结构化认知：只允许 `accepted`、`confidence >= 95`、`scope=project`、`modality=must/must_not` 的条目，最多 3 条。
 
 冲突默认只发现并阻断。人工裁决可使用：
 
@@ -254,6 +260,8 @@ The eval runs in a temporary project copy and checks that user utterances enter 
 
 The current eval also covers five governance scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the losing side, and accepted structured cognition rendering into `WORLD_STATE.md`.
 
+The eval also reads `evals/golden/minimal_invariants.json`. Golden invariants lock down behavior without full-text markdown snapshots. They cover the compact character budget, required checks, conflict scenarios, compact structured summary, and dogfood self-test behavior.
+
 ### Hook Model
 
 At session start:
@@ -279,9 +287,13 @@ Tool calls are stored in two layers:
 
 Cognition candidates keep a readable `claim` and a minimal structured object: `subject / predicate / object / scope / modality / valid_from / valid_until / source_refs / confidence_reason / supersedes`.
 
+`predicate` is normalized to a small enum by local rules, including `enter_core_memory / store_log / create / render / override / require_review / inject_context / call_llm / read_source / update_world_state / score_evidence / resolve_conflict / test_passed`. `states / requires / observed / infers` remain as compatibility and fallback predicates.
+
 The scoring layer indexes `tool_evidence` directly. Test results, git results, and filesystem results get stronger deterministic evidence weight than agent interpretation; web results and generic command output get lower weight. Tool-only candidates still require review before entering core world state.
 
 Conflict detection first compares structured fields. Opposite `modality` for the same `subject / predicate / object / scope` is treated as a conflict; rules with different scopes do not conflict by default.
+
+`WORLD_STATE_COMPACT.md` remains doctrine-heavy by default, but it can include a tiny high-priority structured cognition summary. Only `accepted`, `confidence >= 95`, `scope=project`, `modality=must/must_not` rows are eligible, with a hard cap of 3 rows.
 
 Conflict detection blocks conflicted cognition by default. Human review can resolve or defer conflicts:
 

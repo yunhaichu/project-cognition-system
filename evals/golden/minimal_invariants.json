@@ -1,0 +1,22 @@
+{
+  "max_compact_chars": 1600,
+  "required_checks": [
+    "user_utterance_ingested",
+    "assistant_output_is_log",
+    "tool_evidence_ingested",
+    "tool_evidence_scored_explicitly",
+    "predicate_normalized",
+    "candidates_have_structured_fields",
+    "tool_only_candidate_requires_review_for_world_state",
+    "compact_state_under_1600_chars"
+  ],
+  "required_scenarios": {
+    "user_overrides_agent": ["conflict_detected", "user_side_preferred"],
+    "tool_overrides_agent": ["conflict_detected", "tool_side_preferred"],
+    "scope_separation": ["different_scope_not_conflict"],
+    "resolve_supersedes_loser": ["conflict_detected", "loser_superseded", "winner_kept"],
+    "world_state_structured_layer": ["structured_count_reported", "structured_layer_rendered"],
+    "compact_structured_summary": ["compact_structured_count_reported", "compact_structured_rendered", "compact_stays_small"],
+    "dogfood_self_update": ["self_update_terms_extracted", "assistant_output_still_log", "tool_git_evidence_ingested"]
+  }
+}

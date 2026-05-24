@@ -13,6 +13,7 @@ from common import (
     confidence_table_items,
     detect_topics,
     normalize_text,
+    normalize_predicate,
     now_iso,
     read_jsonl,
     save_confidence_table,
@@ -22,7 +23,7 @@ from common import (
 
 
 KEYWORD_RE = re.compile(
-    r"(用户原话|用户画像|AGENTS\.md|每个项目|项目文件夹|最高权重|不能|不得|不要|禁止|必须|需要|核心|目标|本质|原则|置信度|冲突|审查|跑偏|漂移|误解|污染|WORLD_STATE|memory\.md|RAG|数据库|Web UI|日志)"
+    r"(用户原话|用户画像|AGENTS\.md|每个项目|项目文件夹|最高权重|不能|不得|不要|禁止|必须|需要|核心|目标|本质|原则|置信度|冲突|conflict|审查|跑偏|漂移|误解|污染|WORLD_STATE|memory\.md|RAG|数据库|Web UI|日志|tool evidence|structured|eval scenarios|scoring)"
 )
 
 
@@ -92,9 +93,10 @@ def structured_claim(
     object_value: str | None = None,
     scope: str = "project",
 ) -> dict[str, Any]:
+    inferred_predicate = normalize_predicate(predicate, claim)
     return {
         "subject": subject or category,
-        "predicate": predicate or "states",
+        "predicate": inferred_predicate,
         "object": object_value or trim_text(re.sub(r"^(用户原话片段：|Agent 理解：|Agent 推断目标：|Agent 推断约束：|Agent 标记风险：|工具证据：)", "", claim), 260),
         "scope": scope,
         "modality": modality_for(claim),
@@ -138,7 +140,7 @@ def candidate_from_utterance(utterance: dict[str, Any], fragment: str) -> dict[s
             evidence=evidence,
             source_type="user_utterance",
             subject="user_intent" if category == "user_principle" else "project_cognition_system",
-            predicate="requires" if modality_for(fragment) in {"must", "must_not"} else "states",
+            predicate=None,
         ),
     }
 
@@ -212,7 +214,7 @@ def candidates_from_tool_evidence(record: dict[str, Any]) -> list[dict[str, Any]
                 evidence=evidence,
                 source_type="tool_evidence",
                 subject="tool_result",
-                predicate="observed",
+                predicate="observed" if kind != "test_result" else "test_passed",
                 object_value=summary,
                 scope=kind,
             ),

@@ -66,6 +66,26 @@ TOPIC_KEYWORDS = {
     "web_ui": ["Web UI", "UI", "界面"],
 }
 
+PREDICATE_CHOICES = [
+    "states",
+    "requires",
+    "observed",
+    "infers",
+    "enter_core_memory",
+    "store_log",
+    "create",
+    "render",
+    "override",
+    "require_review",
+    "inject_context",
+    "call_llm",
+    "read_source",
+    "update_world_state",
+    "score_evidence",
+    "resolve_conflict",
+    "test_passed",
+]
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -243,6 +263,49 @@ def save_confidence_table(items: list[dict[str, Any]]) -> None:
 
 def category_choices() -> list[str]:
     return ["user_principle", "project_principle", "constraint", "risk", "strategy", "decision"]
+
+
+def predicate_choices() -> list[str]:
+    return list(PREDICATE_CHOICES)
+
+
+def normalize_predicate(value: str | None, claim: str = "") -> str:
+    raw = (value or "").strip()
+    if raw in PREDICATE_CHOICES:
+        return raw
+    text = f"{raw}\n{claim}"
+    lowered = text.lower()
+    if re.search(r"(assistant|agent).{0,20}(输出|output|answer)|最终输出|核心记忆|核心事实|core memory", lowered):
+        if re.search(r"(日志|log)", lowered) and not re.search(r"(核心|core)", lowered):
+            return "store_log"
+        return "enter_core_memory"
+    if re.search(r"(日志|log)", lowered):
+        return "store_log"
+    if re.search(r"(创建|create|保留|生成).{0,20}(agents\.md|文件|目录)|agents\.md", lowered):
+        return "create"
+    if re.search(r"(注入|塞给模型|上下文|context|prompt|raw|logs|history|历史)", lowered):
+        return "inject_context"
+    if re.search(r"(llm|模型|总结历史|蒸馏|summar)", lowered):
+        return "call_llm"
+    if re.search(r"(原文|回查|读取|定位|source|evidence)", lowered):
+        return "read_source"
+    if re.search(r"(world_state|世界状态|核心状态).{0,20}(更新|生成|重建|修改|进入|写入)|update world", lowered):
+        return "update_world_state"
+    if re.search(r"(渲染|render|compact|world_state)", lowered):
+        return "render"
+    if re.search(r"(审查|review|人工|accepted|accept|proposal|proposed)", lowered):
+        return "require_review"
+    if re.search(r"(覆盖|推翻|supersede|override)", lowered):
+        return "override"
+    if re.search(r"(评分|置信|confidence|score|权重|weight)", lowered):
+        return "score_evidence"
+    if re.search(r"(冲突|conflict|resolve|裁决|defer|chosen)", lowered):
+        return "resolve_conflict"
+    if re.search(r"(test|pytest|测试).{0,20}(pass|passed|通过|失败|failed)", lowered):
+        return "test_passed"
+    if raw:
+        return "states"
+    return "states"
 
 
 def parse_csv_values(values: list[str] | None) -> list[str]:

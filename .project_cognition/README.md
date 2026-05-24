@@ -13,3 +13,5 @@ Key runtime files:
 - `raw/conflicts.jsonl`: detected conflicts; use `scripts/resolve_conflict.py` for review.
 
 `WORLD_STATE.md` combines short bootstrap doctrine with accepted structured cognition. The compact file remains short and is the default hook payload.
+
+Compact structured cognition is intentionally narrow: accepted project-scope must/must_not rows with confidence 95 or higher, capped at 3 rows.

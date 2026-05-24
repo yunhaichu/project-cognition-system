@@ -12,8 +12,10 @@ from common import (
     bool_from_yes_no,
     category_choices,
     make_id,
+    normalize_predicate,
     now_iso,
     parse_csv_values,
+    predicate_choices,
     read_jsonl,
     write_text,
 )
@@ -51,7 +53,7 @@ def create_proposal(args: argparse.Namespace) -> dict[str, Any]:
     supersedes = parse_csv_values(args.supersedes)
     structured = {
         "subject": args.subject or args.category,
-        "predicate": args.predicate or "states",
+        "predicate": normalize_predicate(args.predicate, args.claim),
         "object": args.object or args.claim,
         "scope": args.scope,
         "modality": args.modality,
@@ -92,7 +94,7 @@ def main() -> None:
     parser.add_argument("--suggested-action", choices=["accept", "reject", "defer"], default="defer", help="Suggested review action.")
     parser.add_argument("--should-update-world-state", choices=["yes", "no"], default="no", help="Whether this should enter WORLD_STATE.md if accepted.")
     parser.add_argument("--subject", help="Structured subject for this cognition.")
-    parser.add_argument("--predicate", help="Structured predicate for this cognition.")
+    parser.add_argument("--predicate", choices=predicate_choices(), help="Structured predicate for this cognition.")
     parser.add_argument("--object", help="Structured object for this cognition.")
     parser.add_argument("--scope", default="project", help="Structured scope. Default: project.")
     parser.add_argument("--modality", default="unknown", choices=["must", "should", "may", "must_not", "is", "is_not", "unknown"], help="Structured modality.")

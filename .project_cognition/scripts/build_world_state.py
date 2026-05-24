@@ -126,6 +126,35 @@ def structured_cognition_rows(items: list[dict[str, Any]], max_items: int = 6) -
     return rows
 
 
+def compact_structured_rows(items: list[dict[str, Any]], max_items: int = 3) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        structured = item.get("structured") or {}
+        if item.get("status") != "accepted":
+            continue
+        if int(item.get("confidence", 0)) < 95:
+            continue
+        if str(structured.get("scope") or "project") != "project":
+            continue
+        modality = str(structured.get("modality") or "unknown")
+        if modality not in {"must", "must_not"}:
+            continue
+        predicate = str(structured.get("predicate") or "states")
+        obj = clean_claim(str(structured.get("object") or item.get("claim", "")))
+        if not obj:
+            continue
+        obj = obj[:96] + "…" if len(obj) > 96 else obj
+        key = normalize_text("|".join([modality, predicate, obj]))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(f"- [{modality}/{predicate}] {obj}")
+        if len(rows) >= max_items:
+            break
+    return rows
+
+
 def render_world_state(items: list[dict[str, Any]]) -> str:
     constraints = claims(items, "constraint", 8)
     risks = claims(items, "risk", 4)
@@ -188,6 +217,7 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
 
 def render_compact_world_state(items: list[dict[str, Any]]) -> str:
     hermes = "Hermes hook 已改为每 session 最多一次 compact 注入；post 默认只采集用户原话和 Agent 日志。" if has_claim(items, "Hermes", "低上下文|低成本") else ""
+    compact_structured = compact_structured_rows(items)
     lines = [
         "# WORLD_STATE_COMPACT.md",
         "",
@@ -197,6 +227,9 @@ def render_compact_world_state(items: list[dict[str, Any]]) -> str:
         "上下文：不默认使用线程历史、raw、logs；需要证据时按 ID/关键词定位具体原文读取。",
         "流程：SessionStart 注入本文件；Stop 本地规则整理，不调用 LLM；proposal/review 后才重建 WORLD_STATE。",
     ]
+    if compact_structured:
+        lines.append("高优先级结构化认知：")
+        lines.extend(compact_structured)
     if hermes:
         lines.append(f"状态：{hermes}")
     lines.append("偏航检查：是否违背用户原话、扩大范围、把总结当事实、忽略真实代码/工具结果，或需要回查原文。")
@@ -216,6 +249,7 @@ def main() -> None:
         "included_cognition_ids": [item["id"] for item in items],
         "included_count": len(items),
         "structured_count": len(structured_cognition_rows(items)),
+        "compact_structured_count": len(compact_structured_rows(items)),
         "characters": len(content),
         "compact_characters": len(compact_content),
     }

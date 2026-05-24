@@ -12,6 +12,27 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CASE_FILE = REPO_ROOT / "evals" / "cases" / "minimal_governance_session.jsonl"
+DOGFOOD_FILE = REPO_ROOT / "evals" / "cases" / "dogfood_self_update.jsonl"
+GOLDEN_FILE = REPO_ROOT / "evals" / "golden" / "minimal_invariants.json"
+PREDICATES = {
+    "states",
+    "requires",
+    "observed",
+    "infers",
+    "enter_core_memory",
+    "store_log",
+    "create",
+    "render",
+    "override",
+    "require_review",
+    "inject_context",
+    "call_llm",
+    "read_source",
+    "update_world_state",
+    "score_evidence",
+    "resolve_conflict",
+    "test_passed",
+}
 
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
@@ -165,6 +186,9 @@ def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[st
         "tool_evidence_ingested": len(tool_evidence) == 1 and tool_evidence[0].get("evidence_kind") == "test_result",
         "tool_evidence_scored_explicitly": bool(tool_items)
         and all("tool_evidence" in row.get("score_signals", []) for row in tool_items),
+        "predicate_normalized": bool(items)
+        and all(row.get("structured", {}).get("predicate") in PREDICATES for row in items)
+        and any(row.get("structured", {}).get("predicate") != "states" for row in items),
         "candidates_have_structured_fields": bool(items) and all("structured" in row for row in items),
         "tool_only_candidate_requires_review_for_world_state": bool(tool_items)
         and all(row.get("requires_review_for_world_state") and not row.get("include_in_world_state") for row in tool_items),
@@ -212,7 +236,7 @@ def check_tool_overrides_agent(project_root: Path) -> dict[str, bool]:
         modality="is_not",
         scope="test",
         subject="test_result",
-        predicate="passed",
+        predicate="test_passed",
         object_value="pytest suite",
         confidence=89,
         status="candidate",
@@ -224,7 +248,7 @@ def check_tool_overrides_agent(project_root: Path) -> dict[str, bool]:
         modality="is",
         scope="test",
         subject="test_result",
-        predicate="passed",
+        predicate="test_passed",
         object_value="pytest suite",
         confidence=74,
         status="candidate",
@@ -327,6 +351,94 @@ def check_world_state_structured_layer(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_compact_structured_summary(project_root: Path) -> dict[str, bool]:
+    accepted = item(
+        "compact_rule",
+        claim="Compact world state should include only top priority accepted project rules.",
+        source_type="proposed_update",
+        modality="must",
+        scope="project",
+        subject="compact_world_state",
+        predicate="render",
+        object_value="top priority accepted project rules",
+        confidence=98,
+    )
+    low_priority = item(
+        "low_priority_rule",
+        claim="Low confidence structured cognition should not enter compact state.",
+        source_type="proposed_update",
+        modality="must",
+        scope="project",
+        subject="compact_world_state",
+        predicate="render",
+        object_value="low confidence rule",
+        confidence=90,
+    )
+    out_of_scope = item(
+        "global_rule",
+        claim="Global user profile rule should not enter project compact state.",
+        source_type="proposed_update",
+        modality="must",
+        scope="user_global",
+        subject="compact_world_state",
+        predicate="render",
+        object_value="global profile rule",
+        confidence=98,
+    )
+    set_items(project_root, [accepted, low_priority, out_of_scope])
+    result = run_script(project_root, "build_world_state.py")
+    compact = (project_root / ".project_cognition" / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8")
+    return {
+        "compact_structured_count_reported": result.get("compact_structured_count") == 1,
+        "compact_structured_rendered": "top priority accepted project rules" in compact
+        and "low confidence rule" not in compact
+        and "global profile rule" not in compact,
+        "compact_stays_small": len(compact) <= 1600,
+    }
+
+
+def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
+    steps = {
+        "ingest": run_script(
+            project_root,
+            "ingest_session.py",
+            ["--input", str(DOGFOOD_FILE), "--session-id", "dogfood_self_update", "--source", "eval"],
+        ),
+        "extract": run_script(project_root, "extract_candidates.py"),
+        "score": run_script(project_root, "score_candidates.py"),
+        "conflicts": run_script(project_root, "detect_conflicts.py"),
+        "world_state": run_script(project_root, "build_world_state.py"),
+    }
+    cognition_root = project_root / ".project_cognition"
+    table_text = json.dumps(read_json(cognition_root / "distilled" / "confidence_table.json"), ensure_ascii=False)
+    assistant_outputs = read_jsonl(cognition_root / "logs" / "outputs" / "dogfood_self_update.jsonl")
+    tool_evidence = read_jsonl(cognition_root / "raw" / "tool_evidence.jsonl")
+    return {
+        "self_update_terms_extracted": all(term in table_text for term in ["tool evidence scoring", "structured conflict", "eval scenarios"]),
+        "assistant_output_still_log": steps["ingest"]["counts"]["assistant"] == 1 and len(assistant_outputs) == 1,
+        "tool_git_evidence_ingested": any(row.get("evidence_kind") == "git_result" for row in tool_evidence),
+    }
+
+
+def check_golden_invariants(result: dict[str, Any]) -> dict[str, bool]:
+    golden = read_json(GOLDEN_FILE)
+    checks = result["checks"]
+    scenarios = result["scenario_checks"]
+    required_checks = golden.get("required_checks", [])
+    required_scenarios = golden.get("required_scenarios", {})
+    compact_chars = int(result["pipeline_steps"]["world_state"].get("compact_characters", 10**9))
+    rows: dict[str, bool] = {
+        "golden_required_checks_present": all(checks.get(name) is True for name in required_checks),
+        "golden_required_scenarios_present": all(
+            scenarios.get(scenario, {}).get(name) is True
+            for scenario, names in required_scenarios.items()
+            for name in names
+        ),
+        "golden_compact_budget_kept": compact_chars <= int(golden.get("max_compact_chars", 1600)),
+    }
+    return rows
+
+
 def run_eval() -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="pcs_eval_") as temp_dir:
         project_root = make_project_copy(temp_dir)
@@ -340,21 +452,26 @@ def run_eval() -> dict[str, Any]:
         ("scope_separation", check_scope_separation),
         ("resolve_supersedes_loser", check_resolve_supersedes_loser),
         ("world_state_structured_layer", check_world_state_structured_layer),
+        ("compact_structured_summary", check_compact_structured_summary),
+        ("dogfood_self_update", check_dogfood_self_update),
     ]:
         with tempfile.TemporaryDirectory(prefix=f"pcs_eval_{name}_") as temp_dir:
             project_root = make_project_copy(temp_dir)
             scenario_checks[name] = check_fn(project_root)
 
-    all_checks = [*checks.values()]
-    for scenario in scenario_checks.values():
-        all_checks.extend(scenario.values())
-    return {
+    result = {
         "case": str(CASE_FILE.relative_to(REPO_ROOT)),
+        "golden": str(GOLDEN_FILE.relative_to(REPO_ROOT)),
         "pipeline_steps": steps,
         "checks": checks,
         "scenario_checks": scenario_checks,
-        "passed": all(all_checks),
     }
+    result["golden_checks"] = check_golden_invariants(result)
+    all_checks = [*checks.values(), *result["golden_checks"].values()]
+    for scenario in scenario_checks.values():
+        all_checks.extend(scenario.values())
+    result["passed"] = all(all_checks)
+    return result
 
 
 def main() -> None:

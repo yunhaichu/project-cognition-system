@@ -13,6 +13,7 @@ from common import (
     append_jsonl,
     category_choices,
     confidence_table_items,
+    normalize_predicate,
     now_iso,
     read_jsonl,
     save_confidence_table,
@@ -71,7 +72,7 @@ def proposal_to_cognition(proposal: dict[str, Any]) -> dict[str, Any]:
     confidence = int(proposal.get("confidence", 0))
     structured = proposal.get("structured") or {
         "subject": proposal["category"],
-        "predicate": "states",
+        "predicate": normalize_predicate(None, proposal["claim"]),
         "object": proposal["claim"],
         "scope": "project",
         "modality": "unknown",
