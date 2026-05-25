@@ -13,6 +13,7 @@ from project_cognition_common import (
     read_hook_input,
     resolve_cwd,
     run_project_script,
+    truncate_text,
 )
 
 
@@ -64,8 +65,8 @@ def main() -> int:
         event["user_profile"] = {
             "runtime_sync": runtime_sync,
             "returncode": profile_completed.returncode,
-            "stdout": profile_completed.stdout[-2000:],
-            "stderr": profile_completed.stderr[-2000:],
+            "stdout": truncate_text(profile_completed.stdout, 1000),
+            "stderr": truncate_text(profile_completed.stderr, 1000),
         }
     except Exception as exc:
         event["user_profile"] = {"status": "error", "error": repr(exc)}
@@ -73,7 +74,7 @@ def main() -> int:
     completed, used_args = run_pre_hook(project_root)
     event["pre_hook_args"] = used_args
     event["returncode"] = completed.returncode
-    event["stderr"] = completed.stderr[-2000:]
+    event["stderr"] = truncate_text(completed.stderr, 1000)
     if completed.returncode == 0 and completed.stdout.strip():
         context = CONTEXT_MINIMALISM_NOTICE + "\n\n" + completed.stdout.strip()
         if len(context) > MAX_CONTEXT_CHARS:
@@ -81,6 +82,7 @@ def main() -> int:
             context = context[: max(0, MAX_CONTEXT_CHARS - len(suffix))] + suffix
         emit_additional_context(context)
         event["status"] = "bootstrapped_ok" if bootstrap_event else "ok"
+        event["context_chars"] = len(context)
     else:
         emit_additional_context(f"Project Cognition: failed to load WORLD_STATE.md for {project_root}. Check hook log.")
         event["status"] = "error"

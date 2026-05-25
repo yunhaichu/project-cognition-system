@@ -14,6 +14,8 @@ from project_cognition_common import (
     read_hook_input,
     resolve_cwd,
     run_project_script,
+    summarize_post_hook_stdout,
+    truncate_text,
 )
 
 
@@ -53,8 +55,10 @@ def main() -> int:
         event["runtime_sync"] = ensure_project_runtime(project_root)
         completed = run_project_script(project_root, "codex_post_hook.py", args, POST_HOOK_TIMEOUT)
         event["returncode"] = completed.returncode
-        event["stdout"] = completed.stdout[-4000:]
-        event["stderr"] = completed.stderr[-4000:]
+        event["post_hook"] = summarize_post_hook_stdout(completed.stdout)
+        if completed.returncode != 0:
+            event["stdout_tail"] = truncate_text(completed.stdout, 1000)
+        event["stderr"] = truncate_text(completed.stderr, 2000)
         event["status"] = "bootstrapped_ok" if bootstrap_event and completed.returncode == 0 else ("ok" if completed.returncode == 0 else "error")
     except Exception as exc:
         event["status"] = "exception"
@@ -64,8 +68,8 @@ def main() -> int:
         profile_completed = run_project_script(project_root, "build_user_profile.py", [], 15)
         event["user_profile"] = {
             "returncode": profile_completed.returncode,
-            "stdout": profile_completed.stdout[-2000:],
-            "stderr": profile_completed.stderr[-2000:],
+            "stdout": truncate_text(profile_completed.stdout, 1000),
+            "stderr": truncate_text(profile_completed.stderr, 1000),
         }
     except Exception as exc:
         event["user_profile"] = {"status": "error", "error": repr(exc)}

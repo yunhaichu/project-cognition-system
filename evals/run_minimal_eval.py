@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -1006,6 +1007,79 @@ def check_evidence_lookup(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_index_cache(project_root: Path) -> dict[str, bool]:
+    run_script(
+        project_root,
+        "ingest_session.py",
+        ["--input", str(CASE_FILE), "--session-id", "index_cache_eval", "--source", "eval"],
+    )
+    first = run_script(project_root, "index_segments.py")
+    second = run_script(project_root, "index_segments.py")
+    return {
+        "first_index_builds": first.get("skipped") is False and first.get("segment_count", 0) >= 2,
+        "unchanged_index_skips": second.get("skipped") is True and second.get("skip_reason") == "inputs_unchanged",
+        "index_summary_hides_fingerprint": "source_fingerprint" not in second and second.get("source_file_count", 0) >= 2,
+    }
+
+
+def load_codex_common_module() -> Any:
+    module_path = REPO_ROOT / "integrations" / "codex" / "project_cognition_common.py"
+    spec = importlib.util.spec_from_file_location("eval_project_cognition_common", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_hook_runtime_hygiene(project_root: Path) -> dict[str, bool]:
+    common_module = load_codex_common_module()
+    common_module.BOOTSTRAP_SCRIPT = REPO_ROOT / ".project_cognition" / "scripts" / "bootstrap_existing_project.py"
+
+    target = project_root.parent / "runtime_target"
+    shutil.copytree(project_root / ".project_cognition", target / ".project_cognition")
+    for path in (target / ".project_cognition" / "schemas").glob("*.schema.json"):
+        path.unlink()
+    runtime_sync = common_module.ensure_project_runtime(target)
+
+    noisy_output = json.dumps(
+        {
+            "hook": "codex_post",
+            "session_id": "eval",
+            "ingested": False,
+            "local_only": True,
+            "step_count": 1,
+            "step_scripts": ["cluster_conflicts.py"],
+            "conflict_clusters": {
+                "total_conflicts": 2,
+                "cluster_count": 1,
+                "clusters": [{"id": "cluster_x", "large": "x" * 5000}],
+            },
+            "evidence_index": {
+                "segment_count": 3,
+                "source_types": {"user_utterance": 1, "tool_evidence": 2},
+                "source_file_count": 2,
+                "source_fingerprint": {"files": [{"path": "raw/user_utterances.jsonl"}]},
+                "skipped": True,
+                "skip_reason": "inputs_unchanged",
+                "local_only": True,
+            },
+            "drift": {"ok": True, "compact_characters": 300, "hard_failures": []},
+        },
+        ensure_ascii=False,
+    )
+    summary = common_module.summarize_post_hook_stdout(noisy_output)
+    schema_names = {path.name for path in (target / ".project_cognition" / "schemas").glob("*.schema.json")}
+    return {
+        "runtime_sync_copies_schemas": "tool_evidence.schema.json" in schema_names
+        and bool(runtime_sync.get("copied_schemas")),
+        "post_hook_summary_omits_cluster_members": "clusters" not in summary.get("conflict_clusters", {}),
+        "post_hook_summary_omits_fingerprint": "source_fingerprint" not in summary.get("evidence_index", {}),
+        "post_hook_summary_keeps_metrics": summary.get("evidence_index", {}).get("skipped") is True
+        and summary.get("raw_stdout_chars", 0) == len(noisy_output),
+    }
+
+
 def check_conflict_cluster_integrity(project_root: Path) -> dict[str, bool]:
     a = item(
         "cluster_user_a",
@@ -1378,6 +1452,8 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("e2e_multi_transcript", check_e2e_multi_transcript),
         ("cross_reference_validation", check_cross_reference_validation),
         ("evidence_lookup", check_evidence_lookup),
+        ("index_cache", check_index_cache),
+        ("hook_runtime_hygiene", check_hook_runtime_hygiene),
         ("conflict_clustering", check_conflict_cluster_integrity),
         ("conflict_cluster_review", check_conflict_cluster_review),
         ("compound_sentence_extraction", check_compound_sentence_extraction),

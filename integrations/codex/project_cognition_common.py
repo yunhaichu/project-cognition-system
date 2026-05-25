@@ -13,6 +13,8 @@ from typing import Any
 
 STATE_DIR = Path.home() / "codex-hooks" / "state" / "project-cognition"
 LOG_FILE = STATE_DIR / "hook-runs.jsonl"
+LOG_MAX_BYTES = int(os.environ.get("PROJECT_COGNITION_HOOK_LOG_MAX_BYTES", str(1024 * 1024)))
+LOG_BACKUPS = int(os.environ.get("PROJECT_COGNITION_HOOK_LOG_BACKUPS", "3"))
 BOOTSTRAP_SCRIPT = Path(
     os.environ.get(
         "PROJECT_COGNITION_BOOTSTRAP_SCRIPT",
@@ -56,6 +58,17 @@ RUNTIME_SCRIPT_NAMES = [
     "resolve_conflict.py",
     "propose_update.py",
     "review_update.py",
+]
+RUNTIME_SCHEMA_NAMES = [
+    "agent_interpretation.schema.json",
+    "cognition_candidate.schema.json",
+    "confidence_table.schema.json",
+    "conflict.schema.json",
+    "decision.schema.json",
+    "proposed_update.schema.json",
+    "tool_evidence.schema.json",
+    "user_utterance.schema.json",
+    "world_state.schema.json",
 ]
 
 
@@ -181,6 +194,33 @@ def bootstrap_project(target_root: Path, timeout: int = 60) -> subprocess.Comple
     )
 
 
+def truncate_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[-max_chars:]
+
+
+def rotate_log_if_needed() -> None:
+    if LOG_MAX_BYTES <= 0 or LOG_BACKUPS <= 0 or not LOG_FILE.exists():
+        return
+    try:
+        if LOG_FILE.stat().st_size <= LOG_MAX_BYTES:
+            return
+        for index in range(LOG_BACKUPS - 1, 0, -1):
+            source = LOG_FILE.with_name(f"{LOG_FILE.name}.{index}")
+            destination = LOG_FILE.with_name(f"{LOG_FILE.name}.{index + 1}")
+            if source.exists():
+                if destination.exists():
+                    destination.unlink()
+                source.rename(destination)
+        first_backup = LOG_FILE.with_name(f"{LOG_FILE.name}.1")
+        if first_backup.exists():
+            first_backup.unlink()
+        LOG_FILE.rename(first_backup)
+    except OSError:
+        pass
+
+
 def find_or_bootstrap_project_root(start: Path, allow_bootstrap: bool = True) -> tuple[Path | None, dict[str, Any] | None]:
     existing = find_project_root(start)
     if existing or not allow_bootstrap:
@@ -205,6 +245,7 @@ def find_or_bootstrap_project_root(start: Path, allow_bootstrap: bool = True) ->
 def log_event(event: dict[str, Any]) -> None:
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
+        rotate_log_if_needed()
         with LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
     except Exception:
@@ -245,6 +286,25 @@ def ensure_project_script(project_root: Path, script_name: str) -> bool:
     return True
 
 
+def runtime_schema_names() -> list[str]:
+    source_dir = BOOTSTRAP_SCRIPT.parent.parent / "schemas"
+    if source_dir.exists():
+        return sorted(path.name for path in source_dir.glob("*.schema.json"))
+    return RUNTIME_SCHEMA_NAMES
+
+
+def ensure_project_schema(project_root: Path, schema_name: str) -> bool:
+    source = BOOTSTRAP_SCRIPT.parent.parent / "schemas" / schema_name
+    destination = project_root / ".project_cognition" / "schemas" / schema_name
+    if destination.exists() and not files_differ(source, destination):
+        return False
+    if not source.exists():
+        raise FileNotFoundError(f"Project cognition runtime schema not found: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return True
+
+
 def ensure_project_runtime(project_root: Path, script_names: list[str] | None = None) -> dict[str, Any]:
     copied: list[str] = []
     missing: list[str] = []
@@ -254,7 +314,79 @@ def ensure_project_runtime(project_root: Path, script_names: list[str] | None = 
                 copied.append(script_name)
         except FileNotFoundError:
             missing.append(script_name)
-    return {"copied": copied, "missing": missing}
+    copied_schemas: list[str] = []
+    missing_schemas: list[str] = []
+    for schema_name in runtime_schema_names():
+        try:
+            if ensure_project_schema(project_root, schema_name):
+                copied_schemas.append(schema_name)
+        except FileNotFoundError:
+            missing_schemas.append(schema_name)
+    return {
+        "copied": copied,
+        "missing": missing,
+        "copied_schemas": copied_schemas,
+        "missing_schemas": missing_schemas,
+    }
+
+
+def summarize_mapping(value: Any, keys: list[str]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: value[key] for key in keys if key in value}
+
+
+def summarize_post_hook_stdout(stdout: str) -> dict[str, Any]:
+    raw = stdout.strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"raw_stdout_chars": len(stdout), "stdout_tail": truncate_text(stdout, 1000)}
+    if not isinstance(data, dict):
+        return {"raw_stdout_chars": len(stdout), "stdout_type": type(data).__name__}
+
+    summary: dict[str, Any] = summarize_mapping(
+        data,
+        ["hook", "timestamp", "session_id", "ingested", "local_only", "step_count", "step_scripts"],
+    )
+    summary["raw_stdout_chars"] = len(stdout)
+    summary["world_state"] = summarize_mapping(
+        data.get("world_state"),
+        ["included_count", "structured_count", "compact_structured_count", "characters", "compact_characters"],
+    )
+    summary["user_profile"] = summarize_mapping(
+        data.get("user_profile"),
+        ["changed", "generated_candidates", "min_confidence"],
+    )
+    summary["conflicts"] = summarize_mapping(data.get("conflicts"), ["new_conflicts", "total_conflicts"])
+    summary["conflict_clusters"] = summarize_mapping(
+        data.get("conflict_clusters"),
+        ["total_conflicts", "cluster_count"],
+    )
+    summary["evidence_index"] = summarize_mapping(
+        data.get("evidence_index"),
+        ["segment_count", "source_types", "source_file_count", "skipped", "skip_reason", "local_only"],
+    )
+    summary["drift"] = summarize_mapping(
+        data.get("drift"),
+        [
+            "ok",
+            "compact_characters",
+            "max_compact_chars",
+            "unresolved_high_severity_conflicts",
+            "max_high_severity_conflicts",
+            "conflict_cluster_count",
+            "dangling_reference_errors",
+            "stale_revived_items",
+            "assistant_only_core_items",
+            "evidence_mix",
+            "warnings",
+            "hard_failures",
+        ],
+    )
+    return summary
 
 
 def emit_additional_context(text: str) -> None:

@@ -27,6 +27,8 @@ logger = logging.getLogger("hermes_plugins.project_cognition")
 
 _STATE_DIR = Path.home() / ".hermes" / "state" / "project-cognition"
 _LOG_FILE = _STATE_DIR / "hook-runs.jsonl"
+_LOG_MAX_BYTES = int(os.environ.get("HERMES_PROJECT_COGNITION_LOG_MAX_BYTES", str(1024 * 1024)))
+_LOG_BACKUPS = int(os.environ.get("HERMES_PROJECT_COGNITION_LOG_BACKUPS", "3"))
 _BOOTSTRAP_SCRIPT = Path(
     os.environ.get(
         "PROJECT_COGNITION_BOOTSTRAP_SCRIPT",
@@ -78,6 +80,17 @@ _RUNTIME_SCRIPT_NAMES = [
     "propose_update.py",
     "review_update.py",
 ]
+_RUNTIME_SCHEMA_NAMES = [
+    "agent_interpretation.schema.json",
+    "cognition_candidate.schema.json",
+    "confidence_table.schema.json",
+    "conflict.schema.json",
+    "decision.schema.json",
+    "proposed_update.schema.json",
+    "tool_evidence.schema.json",
+    "user_utterance.schema.json",
+    "world_state.schema.json",
+]
 
 _CONTEXT_MINIMALISM_NOTICE = (
     "Context Minimal Mode: use current command + global protocol + compact project state. "
@@ -89,6 +102,12 @@ _INJECTED_KEYS: set[str] = set()
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _truncate_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[-max_chars:]
 
 
 def _short_hash(text: str, length: int = 10) -> str:
@@ -225,14 +244,35 @@ def _find_or_bootstrap_project_root(start: Path, allow_bootstrap: bool = True) -
     event = {
         "target_root": str(target),
         "returncode": completed.returncode,
-        "stdout": completed.stdout[-4000:],
-        "stderr": completed.stderr[-4000:],
+        "stdout": _truncate_text(completed.stdout, 1000),
+        "stderr": _truncate_text(completed.stderr, 1000),
     }
     if completed.returncode == 0 and _has_complete_cognition(target):
         event["status"] = "created"
         return target, event
     event["status"] = "error"
     return None, event
+
+
+def _rotate_log_if_needed() -> None:
+    if _LOG_MAX_BYTES <= 0 or _LOG_BACKUPS <= 0 or not _LOG_FILE.exists():
+        return
+    try:
+        if _LOG_FILE.stat().st_size <= _LOG_MAX_BYTES:
+            return
+        for index in range(_LOG_BACKUPS - 1, 0, -1):
+            source = _LOG_FILE.with_name(f"{_LOG_FILE.name}.{index}")
+            destination = _LOG_FILE.with_name(f"{_LOG_FILE.name}.{index + 1}")
+            if source.exists():
+                if destination.exists():
+                    destination.unlink()
+                source.rename(destination)
+        first_backup = _LOG_FILE.with_name(f"{_LOG_FILE.name}.1")
+        if first_backup.exists():
+            first_backup.unlink()
+        _LOG_FILE.rename(first_backup)
+    except OSError:
+        pass
 
 
 def _run_project_script(project_root: Path, script_name: str, args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
@@ -278,6 +318,25 @@ def _ensure_project_script(project_root: Path, script_name: str) -> bool:
     return True
 
 
+def _runtime_schema_names() -> list[str]:
+    source_dir = _BOOTSTRAP_SCRIPT.parent.parent / "schemas"
+    if source_dir.exists():
+        return sorted(path.name for path in source_dir.glob("*.schema.json"))
+    return _RUNTIME_SCHEMA_NAMES
+
+
+def _ensure_project_schema(project_root: Path, schema_name: str) -> bool:
+    source = _BOOTSTRAP_SCRIPT.parent.parent / "schemas" / schema_name
+    destination = project_root / ".project_cognition" / "schemas" / schema_name
+    if destination.exists() and not _files_differ(source, destination):
+        return False
+    if not source.exists():
+        raise FileNotFoundError(f"Project cognition runtime schema not found: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return True
+
+
 def _ensure_project_runtime(project_root: Path, script_names: list[str] | None = None) -> dict[str, Any]:
     copied: list[str] = []
     missing: list[str] = []
@@ -287,16 +346,83 @@ def _ensure_project_runtime(project_root: Path, script_names: list[str] | None =
                 copied.append(script_name)
         except FileNotFoundError:
             missing.append(script_name)
-    return {"copied": copied, "missing": missing}
+    copied_schemas: list[str] = []
+    missing_schemas: list[str] = []
+    for schema_name in _runtime_schema_names():
+        try:
+            if _ensure_project_schema(project_root, schema_name):
+                copied_schemas.append(schema_name)
+        except FileNotFoundError:
+            missing_schemas.append(schema_name)
+    return {
+        "copied": copied,
+        "missing": missing,
+        "copied_schemas": copied_schemas,
+        "missing_schemas": missing_schemas,
+    }
 
 
 def _log_event(event: dict[str, Any]) -> None:
     try:
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _rotate_log_if_needed()
         with _LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
     except Exception:
         pass
+
+
+def _summarize_mapping(value: Any, keys: list[str]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: value[key] for key in keys if key in value}
+
+
+def _summarize_post_hook_stdout(stdout: str) -> dict[str, Any]:
+    raw = stdout.strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"raw_stdout_chars": len(stdout), "stdout_tail": _truncate_text(stdout, 1000)}
+    if not isinstance(data, dict):
+        return {"raw_stdout_chars": len(stdout), "stdout_type": type(data).__name__}
+
+    summary: dict[str, Any] = _summarize_mapping(
+        data,
+        ["hook", "timestamp", "session_id", "ingested", "local_only", "step_count", "step_scripts"],
+    )
+    summary["raw_stdout_chars"] = len(stdout)
+    summary["world_state"] = _summarize_mapping(
+        data.get("world_state"),
+        ["included_count", "structured_count", "compact_structured_count", "characters", "compact_characters"],
+    )
+    summary["user_profile"] = _summarize_mapping(data.get("user_profile"), ["changed", "generated_candidates", "min_confidence"])
+    summary["conflicts"] = _summarize_mapping(data.get("conflicts"), ["new_conflicts", "total_conflicts"])
+    summary["conflict_clusters"] = _summarize_mapping(data.get("conflict_clusters"), ["total_conflicts", "cluster_count"])
+    summary["evidence_index"] = _summarize_mapping(
+        data.get("evidence_index"),
+        ["segment_count", "source_types", "source_file_count", "skipped", "skip_reason", "local_only"],
+    )
+    summary["drift"] = _summarize_mapping(
+        data.get("drift"),
+        [
+            "ok",
+            "compact_characters",
+            "max_compact_chars",
+            "unresolved_high_severity_conflicts",
+            "max_high_severity_conflicts",
+            "conflict_cluster_count",
+            "dangling_reference_errors",
+            "stale_revived_items",
+            "assistant_only_core_items",
+            "evidence_mix",
+            "warnings",
+            "hard_failures",
+        ],
+    )
+    return summary
 
 
 def _cap_context(content: str) -> str:
@@ -383,8 +509,8 @@ def pre_llm_call_hook(session_id: str = None, user_message: str = None, **kwargs
         event["user_profile"] = {
             "runtime_sync": runtime_sync,
             "returncode": profile_completed.returncode,
-            "stdout": profile_completed.stdout[-2000:],
-            "stderr": profile_completed.stderr[-2000:],
+            "stdout": _truncate_text(profile_completed.stdout, 1000),
+            "stderr": _truncate_text(profile_completed.stderr, 1000),
         }
     except Exception as exc:
         event["user_profile"] = {"status": "error", "error": repr(exc)}
@@ -398,7 +524,7 @@ def pre_llm_call_hook(session_id: str = None, user_message: str = None, **kwargs
     completed, used_args = _run_pre_hook(project_root)
     event["pre_hook_args"] = used_args
     event["returncode"] = completed.returncode
-    event["stderr"] = completed.stderr[-2000:]
+    event["stderr"] = _truncate_text(completed.stderr, 1000)
     if completed.returncode != 0 or not completed.stdout.strip():
         event["status"] = "error"
         _log_event(event)
@@ -459,8 +585,10 @@ def post_llm_call_hook(
         ]
         completed = _run_project_script(project_root, "codex_post_hook.py", args, _POST_HOOK_TIMEOUT)
         event["returncode"] = completed.returncode
-        event["stdout"] = completed.stdout[-4000:]
-        event["stderr"] = completed.stderr[-4000:]
+        event["post_hook"] = _summarize_post_hook_stdout(completed.stdout)
+        if completed.returncode != 0:
+            event["stdout_tail"] = _truncate_text(completed.stdout, 1000)
+        event["stderr"] = _truncate_text(completed.stderr, 2000)
         event["status"] = "bootstrapped_ok" if bootstrap_event and completed.returncode == 0 else ("ok" if completed.returncode == 0 else "error")
     else:
         event["status"] = "captured_only"
@@ -469,8 +597,8 @@ def post_llm_call_hook(
         profile_completed = _run_project_script(project_root, "build_user_profile.py", [], _PROFILE_TIMEOUT)
         event["user_profile"] = {
             "returncode": profile_completed.returncode,
-            "stdout": profile_completed.stdout[-2000:],
-            "stderr": profile_completed.stderr[-2000:],
+            "stdout": _truncate_text(profile_completed.stdout, 1000),
+            "stderr": _truncate_text(profile_completed.stderr, 1000),
         }
     except Exception as exc:
         event["user_profile"] = {"status": "error", "error": repr(exc)}

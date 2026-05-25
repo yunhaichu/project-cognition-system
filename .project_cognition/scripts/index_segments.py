@@ -14,6 +14,7 @@ from common import (
     TOOL_EVIDENCE,
     USER_UTTERANCES,
     now_iso,
+    read_json,
     read_jsonl,
     stable_id,
     trim_text,
@@ -152,7 +153,53 @@ def tool_call_segments(max_chars: int) -> list[dict[str, Any]]:
     return rows
 
 
-def build_index(max_chars: int = DEFAULT_MAX_CHARS, include_tool_logs: bool = True) -> dict[str, Any]:
+def input_paths(include_tool_logs: bool) -> list[Path]:
+    paths = [USER_UTTERANCES, TOOL_EVIDENCE]
+    log_dir = COGNITION_ROOT / "logs" / "tool_calls"
+    if include_tool_logs and log_dir.exists():
+        paths.extend(sorted(log_dir.glob("*.jsonl")))
+    return [path for path in paths if path.exists()]
+
+
+def source_fingerprint(max_chars: int, include_tool_logs: bool) -> dict[str, Any]:
+    files: list[dict[str, Any]] = []
+    for path in input_paths(include_tool_logs):
+        stat = path.stat()
+        files.append(
+            {
+                "path": relative(path),
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+            }
+        )
+    return {
+        "max_chars": max_chars,
+        "include_tool_logs": include_tool_logs,
+        "files": files,
+    }
+
+
+def public_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    result = dict(manifest)
+    fingerprint = result.pop("source_fingerprint", {})
+    files = fingerprint.get("files", []) if isinstance(fingerprint, dict) else []
+    result["source_file_count"] = len(files)
+    return result
+
+
+def build_index(max_chars: int = DEFAULT_MAX_CHARS, include_tool_logs: bool = True, force: bool = False) -> dict[str, Any]:
+    fingerprint = source_fingerprint(max_chars=max_chars, include_tool_logs=include_tool_logs)
+    existing = read_json(INDEX_MANIFEST, {})
+    if (
+        not force
+        and SEGMENT_INDEX.exists()
+        and existing.get("source_fingerprint") == fingerprint
+    ):
+        skipped = dict(existing)
+        skipped["skipped"] = True
+        skipped["skip_reason"] = "inputs_unchanged"
+        return public_manifest(skipped)
+
     segments = [*user_segments(max_chars), *tool_evidence_segments(max_chars)]
     if include_tool_logs:
         segments.extend(tool_call_segments(max_chars))
@@ -167,18 +214,21 @@ def build_index(max_chars: int = DEFAULT_MAX_CHARS, include_tool_logs: bool = Tr
         "source_types": source_types,
         "index": str(SEGMENT_INDEX),
         "local_only": True,
+        "skipped": False,
+        "source_fingerprint": fingerprint,
         "note": "Read-only evidence lookup sidecar. It does not update WORLD_STATE.",
     }
     write_json(INDEX_MANIFEST, manifest)
-    return manifest
+    return public_manifest(manifest)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a local evidence segment index for on-demand lookup.")
     parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS, help="Maximum characters per segment.")
     parser.add_argument("--skip-tool-logs", action="store_true", help="Index raw tool evidence but skip logs/tool_calls/*.jsonl.")
+    parser.add_argument("--force", action="store_true", help="Rebuild the index even when indexed source files are unchanged.")
     args = parser.parse_args()
-    result = build_index(max_chars=args.max_chars, include_tool_logs=not args.skip_tool_logs)
+    result = build_index(max_chars=args.max_chars, include_tool_logs=not args.skip_tool_logs, force=args.force)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
