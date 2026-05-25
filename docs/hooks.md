@@ -20,12 +20,23 @@ Hermes uses the equivalent two hooks:
 - `pre_llm_call`: injects only compact project context and refreshes the Hermes user profile.
 - `post_llm_call`: stores the completed turn and runs the same local governance pipeline.
 
+Hermes also has a separate gateway event hook system under `~/.hermes/hooks/`. The bundled gateway hook in `integrations/hermes/gateway_hook/project_cognition/` registers visible lifecycle events:
+
+- `session:start`
+- `agent:start`
+- `agent:end`
+- `session:end`
+- `session:reset`
+
+This gateway hook is intentionally a lifecycle bridge. It logs gateway events so Hermes does not report "no hooks", but compact context injection still belongs to the `pre_llm_call` plugin hook because gateway event hooks cannot mutate the LLM request. To avoid duplicate ingestion when the plugin hook is active, gateway post-turn ingestion is disabled by default. It can be enabled explicitly with `HERMES_PROJECT_COGNITION_GATEWAY_RUN_POST_HOOK=1`.
+
 Default timeouts are intentionally separate:
 
 - Codex `SessionStart`: `30s`, configurable with `PROJECT_COGNITION_CODEX_SESSION_START_TIMEOUT`.
 - Codex `Stop`: `90s`, configurable with `PROJECT_COGNITION_CODEX_STOP_TIMEOUT`.
 - Hermes `pre_llm_call`: `30s`, configurable with `HERMES_PROJECT_COGNITION_PRE_TIMEOUT`.
 - Hermes `post_llm_call`: `90s`, configurable with `HERMES_PROJECT_COGNITION_POST_TIMEOUT`.
+- Hermes gateway optional post hook: `90s`, configurable with `HERMES_PROJECT_COGNITION_GATEWAY_POST_TIMEOUT`.
 
 The post hook is local-only by default. It ingests the current transcript, writes assistant output to logs, normalizes tool calls into `raw/tool_evidence.jsonl`, runs rule-based extraction/scoring/conflict detection, clusters unresolved conflicts, rebuilds compact state, refreshes the read-only evidence index, and runs drift-budget checks. It does not call an LLM or bulk-inject raw history.
 

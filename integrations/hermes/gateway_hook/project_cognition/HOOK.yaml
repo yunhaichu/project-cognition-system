@@ -1,0 +1,8 @@
+name: project-cognition
+description: Project Cognition gateway lifecycle bridge. The CLI plugin handles compact context injection; this hook makes gateway lifecycle registration visible and auditable.
+events:
+  - session:start
+  - agent:start
+  - agent:end
+  - session:end
+  - session:reset
