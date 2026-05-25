@@ -1,5 +1,5 @@
 name: project_cognition
-version: 1.4.3
+version: 1.4.4
 description: Project Cognition System — plugin hooks plus gateway lifecycle hook registration, compact context injection, runtime script sync, USER_PROFILE maintenance, sidecar indexing, conflict clustering, and local-only drift-checked post-turn updates.
 provides_hooks:
   - pre_llm_call

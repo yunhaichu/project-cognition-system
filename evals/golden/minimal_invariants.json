@@ -10,6 +10,7 @@
     "object_fixtures_pass",
     "object_keys_canonicalized",
     "candidates_have_structured_fields",
+    "unreviewed_candidates_do_not_enter_world_state",
     "tool_only_candidate_requires_review_for_world_state",
     "compact_state_under_1600_chars"
   ],
@@ -31,10 +32,11 @@
     "evidence_lookup": ["source_id_exact_lookup_pass", "lookup_returns_source_refs", "retrieval_does_not_bypass_review"],
     "index_cache": ["first_index_builds", "unchanged_index_skips", "index_summary_hides_fingerprint"],
     "hook_runtime_hygiene": ["runtime_sync_copies_schemas", "post_hook_summary_omits_cluster_members", "post_hook_summary_omits_fingerprint", "post_hook_summary_keeps_metrics"],
+    "legacy_state_migration": ["legacy_report_detects_orphan", "legacy_repair_backs_up_derived", "legacy_repair_quarantines_orphan", "legacy_repair_keeps_raw_evidence", "legacy_orphan_not_core_after_repair", "legacy_repair_validates_state"],
     "conflict_clustering": ["conflict_cluster_integrity"],
     "conflict_cluster_review": ["cluster_review_lists_clusters", "cluster_review_applies_suggested", "cluster_review_skips_missing_suggestions", "cluster_review_defers_cluster"],
     "compound_sentence_extraction": ["compound_sentence_splits_multiple_claims"],
-    "drift_report": ["drift_report_blocks_stale_revival", "assistant_only_still_never_core"],
+    "drift_report": ["drift_report_blocks_stale_revival", "assistant_only_still_never_core", "unreviewed_candidate_still_never_core"],
     "post_hook_sidecar_pipeline": ["post_hook_runs_sidecars", "post_hook_reports_sidecars", "post_hook_writes_sidecar_outputs"],
     "dogfood_self_update": ["self_update_terms_extracted", "assistant_output_still_log", "tool_git_evidence_ingested"],
     "long_dogfood_transcript": ["long_dogfood_terms_extracted", "long_dogfood_assistant_logged", "long_dogfood_tool_evidence"]

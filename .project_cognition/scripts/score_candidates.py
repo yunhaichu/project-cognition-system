@@ -179,9 +179,17 @@ def score_item(
 
     item["confidence"] = confidence
     item["evidence_types"] = sorted(evidence_types)
-    item["requires_review_for_world_state"] = bool(has_tool_evidence and not has_user_evidence and item.get("status") != "accepted")
+    reviewed_for_world_state = item.get("status") == "accepted" and (has_user_evidence or has_tool_evidence)
+    item["requires_review_for_world_state"] = bool(
+        (has_tool_evidence and not has_user_evidence and item.get("status") != "accepted")
+        or (confidence >= int(weights["min_world_confidence"]) and not reviewed_for_world_state)
+    )
     item["score_signals"] = sorted(set(matched_signals))
-    item["include_in_world_state"] = confidence >= 90 and not any(conflict in unresolved_conflicts for conflict in item.get("conflicts", []))
+    item["include_in_world_state"] = (
+        reviewed_for_world_state
+        and confidence >= 90
+        and not any(conflict in unresolved_conflicts for conflict in item.get("conflicts", []))
+    )
     if confidence < 50:
         item["include_in_world_state"] = False
     if item.get("status") not in {"accepted", "rejected"}:

@@ -280,6 +280,9 @@ def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[st
         ),
         "object_keys_canonicalized": bool(items) and all(row.get("structured", {}).get("object_key") for row in items),
         "candidates_have_structured_fields": bool(items) and all("structured" in row for row in items),
+        "unreviewed_candidates_do_not_enter_world_state": all(
+            not row.get("include_in_world_state") for row in items if row.get("status") == "candidate"
+        ),
         "tool_only_candidate_requires_review_for_world_state": bool(tool_items)
         and all(row.get("requires_review_for_world_state") and not row.get("include_in_world_state") for row in tool_items),
         "compact_state_under_1600_chars": compact_chars <= 1600,
@@ -1080,6 +1083,90 @@ def check_hook_runtime_hygiene(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_legacy_state_migration(project_root: Path) -> dict[str, bool]:
+    cognition_root = project_root / ".project_cognition"
+    utterance = {
+        "id": "utt_migrate_valid",
+        "session_id": "legacy_migration",
+        "timestamp": "2026-05-25T00:00:00Z",
+        "text": "用户原话必须最高权重，Agent 输出不能进入核心记忆，只能进入日志。",
+        "source": "eval",
+        "importance_score": 95,
+        "signals": {
+            "long_form": False,
+            "repeated": False,
+            "explicit_preference": True,
+            "explicit_rejection": True,
+            "strong_emphasis": True,
+        },
+        "linked_topics": ["user_utterance", "memory"],
+        "notes": "",
+    }
+    valid = item(
+        "cog_migrate_valid",
+        claim="用户原话必须最高权重。",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="user_utterance",
+        predicate="score_evidence",
+        object_value="user utterance",
+        status="accepted",
+        confidence=96,
+    )
+    valid["evidence"] = ["utt_migrate_valid"]
+    valid["structured"]["source_refs"] = ["utt_migrate_valid"]
+    legacy_orphan = item(
+        "cog_legacy_orphan",
+        claim="旧版本错误派生产物：Agent 输出可以进入核心记忆。",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        status="accepted",
+        confidence=95,
+    )
+    legacy_orphan["evidence"] = ["interp_missing_old"]
+    legacy_orphan["structured"]["source_refs"] = ["interp_missing_old"]
+    legacy_orphan["include_in_world_state"] = True
+    legacy_conflict = {
+        "id": "conflict_legacy_orphan",
+        "timestamp": "2026-05-25T00:01:00Z",
+        "type": "old_vs_new",
+        "item_a": "cog_migrate_valid",
+        "item_b": "cog_legacy_orphan",
+        "description": "Legacy derived conflict should be rebuilt.",
+        "severity": 90,
+        "resolution": "unresolved",
+        "chosen_side": "",
+        "reason": "",
+    }
+    write_jsonl(cognition_root / "raw" / "user_utterances.jsonl", [utterance])
+    write_json(cognition_root / "distilled" / "confidence_table.json", {"items": [valid, legacy_orphan]})
+    write_jsonl(cognition_root / "raw" / "conflicts.jsonl", [legacy_conflict])
+    (cognition_root / "WORLD_STATE.md").write_text("旧版本错误派生产物 should not survive migration.\n", encoding="utf-8")
+    (cognition_root / "WORLD_STATE_COMPACT.md").write_text("旧版本错误派生产物\n", encoding="utf-8")
+
+    report = run_script(project_root, "migrate_legacy_state.py")
+    repaired = run_script(project_root, "migrate_legacy_state.py", ["--repair"])
+    final_table = read_json(cognition_root / "distilled" / "confidence_table.json").get("items", [])
+    final_ids = {row.get("id") for row in final_table}
+    quarantine = read_json(cognition_root / "distilled" / "legacy_quarantined_candidates.json")
+    backup_root = Path(repaired.get("backup", {}).get("backup_root", ""))
+    validation = run_script(project_root, "validate_state.py")
+    final_world = (cognition_root / "WORLD_STATE.md").read_text(encoding="utf-8")
+    return {
+        "legacy_report_detects_orphan": report.get("needs_repair") is True and bool(report.get("orphaned_items")),
+        "legacy_repair_backs_up_derived": backup_root.exists() and (backup_root / "WORLD_STATE.md").exists(),
+        "legacy_repair_quarantines_orphan": "cog_legacy_orphan" in json.dumps(quarantine, ensure_ascii=False),
+        "legacy_repair_keeps_raw_evidence": read_jsonl(cognition_root / "raw" / "user_utterances.jsonl")[0].get("id") == "utt_migrate_valid",
+        "legacy_orphan_not_core_after_repair": "cog_legacy_orphan" not in final_ids and "旧版本错误派生产物" not in final_world,
+        "legacy_repair_validates_state": validation.get("ok") is True,
+    }
+
+
 def check_conflict_cluster_integrity(project_root: Path) -> dict[str, bool]:
     a = item(
         "cluster_user_a",
@@ -1308,12 +1395,31 @@ def check_drift_report(project_root: Path) -> dict[str, bool]:
     set_items(project_root, [assistant_only])
     assistant_status = run_script_status(project_root, "drift_report.py")
     assistant_report = json.loads(assistant_status.stdout)
+
+    candidate_core = item(
+        "candidate_core",
+        claim="Unreviewed candidate should not become core.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="render",
+        object_value="candidate core",
+        status="candidate",
+        confidence=99,
+    )
+    candidate_core["include_in_world_state"] = True
+    set_items(project_root, [candidate_core])
+    candidate_status = run_script_status(project_root, "drift_report.py")
+    candidate_report = json.loads(candidate_status.stdout)
     return {
         "drift_report_blocks_stale_revival": ok_report.get("ok") is True
         and stale_status.returncode != 0
         and "stale_rule_revived" in stale_report.get("hard_failures", []),
         "assistant_only_still_never_core": assistant_status.returncode != 0
         and "assistant_only_entered_core" in assistant_report.get("hard_failures", []),
+        "unreviewed_candidate_still_never_core": candidate_status.returncode != 0
+        and "unreviewed_candidate_entered_core" in candidate_report.get("hard_failures", []),
     }
 
 
@@ -1454,6 +1560,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("evidence_lookup", check_evidence_lookup),
         ("index_cache", check_index_cache),
         ("hook_runtime_hygiene", check_hook_runtime_hygiene),
+        ("legacy_state_migration", check_legacy_state_migration),
         ("conflict_clustering", check_conflict_cluster_integrity),
         ("conflict_cluster_review", check_conflict_cluster_review),
         ("compound_sentence_extraction", check_compound_sentence_extraction),

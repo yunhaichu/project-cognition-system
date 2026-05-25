@@ -34,6 +34,8 @@ def eligible_items() -> list[dict[str, Any]]:
     for item in confidence_table_items():
         if item.get("status") in {"rejected", "superseded"}:
             continue
+        if item.get("status") != "accepted" and item.get("source_type") not in {"manual_initialization", "bootstrap_rule"}:
+            continue
         if not item.get("include_in_world_state"):
             continue
         if item.get("id") in blocked:

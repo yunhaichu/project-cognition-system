@@ -31,6 +31,16 @@ def stale_revived_items(items: list[dict[str, Any]]) -> list[str]:
     )
 
 
+def candidate_core_items(items: list[dict[str, Any]]) -> list[str]:
+    return sorted(
+        str(item.get("id", ""))
+        for item in items
+        if item.get("include_in_world_state")
+        and item.get("status") != "accepted"
+        and item.get("source_type") not in {"manual_initialization", "bootstrap_rule"}
+    )
+
+
 def evidence_mix(items: list[dict[str, Any]]) -> dict[str, int]:
     counts = {"user_utterance": 0, "tool_evidence": 0, "agent_interpretation": 0, "assistant_output": 0, "other": 0}
     for item in items:
@@ -66,6 +76,7 @@ def build_report(
     cluster_count, cluster_file_exists = load_cluster_count()
     stale_revived = stale_revived_items(items)
     assistant_only_core = assistant_only_core_items(items)
+    candidate_core = candidate_core_items(items)
     hard_failures: list[str] = []
     warnings: list[str] = []
 
@@ -77,6 +88,8 @@ def build_report(
         hard_failures.append("stale_rule_revived")
     if assistant_only_core:
         hard_failures.append("assistant_only_entered_core")
+    if candidate_core:
+        hard_failures.append("unreviewed_candidate_entered_core")
     if len(high_unresolved) > max_high_severity_conflicts:
         warnings.append("conflict_budget_exceeded")
 
@@ -90,6 +103,7 @@ def build_report(
         "dangling_reference_errors": len(validation.get("errors", [])),
         "stale_revived_items": stale_revived,
         "assistant_only_core_items": assistant_only_core,
+        "candidate_core_items": candidate_core,
         "evidence_mix": evidence_mix(items),
         "warnings": warnings,
         "hard_failures": hard_failures,
