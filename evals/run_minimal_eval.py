@@ -1063,6 +1063,106 @@ def check_conflict_cluster_integrity(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_conflict_cluster_review(project_root: Path) -> dict[str, bool]:
+    user_rule = item(
+        "review_user_rule",
+        claim="Assistant output must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=98,
+    )
+    agent_rule = item(
+        "review_agent_rule",
+        claim="Agent output may enter core memory.",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="agent output",
+        confidence=74,
+        status="candidate",
+    )
+    set_items(project_root, [user_rule, agent_rule])
+    run_script(project_root, "detect_conflicts.py")
+    clusters = run_script(project_root, "cluster_conflicts.py")
+    cluster_id = clusters["clusters"][0]["id"]
+    listed = run_script(project_root, "review_conflict_cluster.py", ["--list"])
+    inspected = run_script(project_root, "review_conflict_cluster.py", ["--cluster-id", cluster_id, "--inspect"])
+    applied = run_script(
+        project_root,
+        "review_conflict_cluster.py",
+        ["--cluster-id", cluster_id, "--action", "apply-suggested", "--reason", "Eval applies explicit suggested side."],
+    )
+    rows = {row["id"]: row for row in read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])}
+    apply_ok = (
+        listed.get("cluster_count") == 1
+        and inspected.get("suggested_count") == 1
+        and applied.get("reviewed_count") == 1
+        and applied.get("skipped_count") == 0
+        and rows["review_agent_rule"].get("status") == "superseded"
+        and not rows["review_agent_rule"].get("include_in_world_state")
+    )
+
+    equal_a = item(
+        "review_equal_a",
+        claim="WORLD_STATE must be updated automatically.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="update_world_state",
+        object_value="world state",
+        confidence=96,
+    )
+    equal_b = item(
+        "review_equal_b",
+        claim="WORLD_STATE must not be updated automatically.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="world_state",
+        predicate="update_world_state",
+        object_value="WORLD_STATE.md",
+        confidence=96,
+    )
+    set_items(project_root, [equal_a, equal_b])
+    run_script(project_root, "detect_conflicts.py")
+    clusters = run_script(project_root, "cluster_conflicts.py")
+    cluster_id = clusters["clusters"][0]["id"]
+    skipped = run_script(
+        project_root,
+        "review_conflict_cluster.py",
+        ["--cluster-id", cluster_id, "--action", "apply-suggested", "--reason", "Eval should skip missing suggestions."],
+    )
+    conflicts_after_skip = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")
+    skip_ok = skipped.get("reviewed_count") == 0 and skipped.get("skipped_count") == 1 and conflicts_after_skip[0].get("resolution") == "unresolved"
+
+    deferred = run_script(
+        project_root,
+        "review_conflict_cluster.py",
+        ["--cluster-id", cluster_id, "--action", "defer", "--reason", "Eval defers unresolved cluster."],
+    )
+    rows = {row["id"]: row for row in read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])}
+    conflicts_after_defer = read_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl")
+    defer_ok = (
+        deferred.get("reviewed_count") == 1
+        and conflicts_after_defer[0].get("resolution") == "deferred"
+        and not rows["review_equal_a"].get("include_in_world_state")
+        and not rows["review_equal_b"].get("include_in_world_state")
+    )
+    return {
+        "cluster_review_lists_clusters": listed.get("cluster_count") == 1 and bool(inspected.get("items")),
+        "cluster_review_applies_suggested": apply_ok,
+        "cluster_review_skips_missing_suggestions": skip_ok,
+        "cluster_review_defers_cluster": defer_ok,
+    }
+
+
 def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
     utterance = {
         "id": "utt_compound",
@@ -1257,6 +1357,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("cross_reference_validation", check_cross_reference_validation),
         ("evidence_lookup", check_evidence_lookup),
         ("conflict_clustering", check_conflict_cluster_integrity),
+        ("conflict_cluster_review", check_conflict_cluster_review),
         ("compound_sentence_extraction", check_compound_sentence_extraction),
         ("drift_report", check_drift_report),
         ("dogfood_self_update", check_dogfood_self_update),
