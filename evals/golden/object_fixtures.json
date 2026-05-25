@@ -1,5 +1,6 @@
 [
   {"text": "assistant final output", "expected": "assistant_output"},
+  {"text": "assistant final answer", "expected": "assistant_output"},
   {"text": "agent output", "expected": "assistant_output"},
   {"text": "最终输出", "expected": "assistant_output"},
   {"text": "核心事实", "expected": "core_memory"},

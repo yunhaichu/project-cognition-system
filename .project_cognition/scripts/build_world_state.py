@@ -216,7 +216,7 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
 
 
 def render_compact_world_state(items: list[dict[str, Any]]) -> str:
-    hermes = "Hermes hook 已改为每 session 最多一次 compact 注入；post 默认只采集用户原话和 Agent 日志。" if has_claim(items, "Hermes", "低上下文|低成本") else ""
+    hermes = "Hermes hook 每 session/project 最多一次 compact 注入；post 采集本轮证据并按本地规则增量整理，不调用 LLM。" if has_claim(items, "Hermes", "低上下文|低成本") else ""
     compact_structured = compact_structured_rows(items)
     lines = [
         "# WORLD_STATE_COMPACT.md",
@@ -225,7 +225,7 @@ def render_compact_world_state(items: list[dict[str, Any]]) -> str:
         "目标：避免认知漂移，同时极致降低 token。默认只用当前命令、全局协议、紧凑用户画像和本 compact 状态。",
         "硬约束：用户原话/真实工具结果最高权重；Agent 输出只进日志；低置信、无证据、未解决冲突不得进核心状态。",
         "上下文：不默认使用线程历史、raw、logs；需要证据时按 ID/关键词定位具体原文读取。",
-        "流程：SessionStart 注入本文件；Stop 本地规则整理，不调用 LLM；proposal/review 后才重建 WORLD_STATE。",
+        "流程：Codex 在 SessionStart 注入、Stop 整理；Hermes 在 pre/post hook 低成本运行；默认不调用 LLM。",
     ]
     if compact_structured:
         lines.append("高优先级结构化认知：")

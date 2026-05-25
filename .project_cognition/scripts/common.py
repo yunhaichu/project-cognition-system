@@ -48,6 +48,10 @@ WORLD_STATE = COGNITION_ROOT / "WORLD_STATE.md"
 WORLD_STATE_COMPACT = COGNITION_ROOT / "WORLD_STATE_COMPACT.md"
 PROPOSALS_JSONL = COGNITION_ROOT / "proposals" / "proposed_updates.jsonl"
 PROPOSALS_MD = COGNITION_ROOT / "proposals" / "proposed_updates.md"
+INDEX_DIR = COGNITION_ROOT / "index"
+SEGMENT_INDEX = INDEX_DIR / "segments.jsonl"
+INDEX_MANIFEST = INDEX_DIR / "manifest.json"
+CONFLICT_CLUSTERS = COGNITION_ROOT / "distilled" / "conflict_clusters.json"
 
 
 PREFERENCE_RE = re.compile(r"(希望|偏好|倾向|优先|权重最高|核心|目标|应当|应该|必须|需要|要求)")
@@ -175,6 +179,8 @@ def canonical_object(value: str | None) -> str:
     text = normalize_text(str(value or ""))
     replacements = {
         "assistantfinaloutput": "assistant_output",
+        "assistantfinalanswer": "assistant_output",
+        "finalassistantanswer": "assistant_output",
         "assistantoutput": "assistant_output",
         "assistantanswer": "assistant_output",
         "agentfinaloutput": "assistant_output",

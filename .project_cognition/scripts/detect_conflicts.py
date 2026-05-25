@@ -21,7 +21,7 @@ from common import (
 
 TOPIC_RULES = {
     "database": ["数据库", "database"],
-    "web_ui": ["Web UI", "web ui", "UI", "界面"],
+    "web_ui": ["Web UI", "web ui", "界面"],
     "context_dump": ["所有历史", "全部上下文", "塞给模型"],
     "world_state_update": ["直接改核心", "直接修改 WORLD_STATE", "改核心世界状态", "自动改写核心", "随意改写", "Agent 直接改"],
     "agent_output_memory": ["Agent 输出", "最终输出", "核心记忆", "日志"],
@@ -34,6 +34,31 @@ POSITIVE_RE = re.compile(r"(必须|需要|可以|应当|应该|支持|实现|引
 DIRECT_POSITIVE_RE = re.compile(r"(可以|应当|应该|必须|需要).{0,12}(直接|自动|随意).{0,12}(改|修改|改写|进入核心|作为核心)")
 GENERIC_PREDICATES = {"", "states", "requires", "infers", "observed"}
 GENERIC_SUBJECTS = {"", "project", "project_cognition_system", "user_intent", "agent_interpretation", "tool_result"}
+STRUCTURED_CONFLICT_PREDICATES = {
+    "enter_core_memory",
+    "create",
+    "update_world_state",
+    "inject_context",
+    "call_llm",
+    "override",
+    "test_passed",
+}
+GENERIC_OBJECT_TERMS = {
+    "project",
+    "system",
+    "user",
+    "agent",
+    "用户原话片段",
+    "当前项目",
+    "这个系统",
+    "项目",
+    "系统",
+    "需要",
+    "实现",
+    "现在",
+    "已经",
+    "是否",
+}
 
 
 def topics_for(claim: str) -> set[str]:
@@ -73,8 +98,8 @@ def compatible_subject(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
 
 
 def compatible_predicate(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
-    predicate_a = normalize_text(str(item_a.get("structured", {}).get("predicate", "")))
-    predicate_b = normalize_text(str(item_b.get("structured", {}).get("predicate", "")))
+    predicate_a = str(item_a.get("structured", {}).get("predicate", "")).strip().lower()
+    predicate_b = str(item_b.get("structured", {}).get("predicate", "")).strip().lower()
     if predicate_a == predicate_b:
         return True
     return predicate_a in GENERIC_PREDICATES or predicate_b in GENERIC_PREDICATES
@@ -91,7 +116,7 @@ def object_terms(item: dict[str, Any]) -> set[str]:
     for chinese in re.findall(r"[\u4e00-\u9fff]{2,}", text):
         if len(chinese) <= 12:
             terms.add(chinese)
-    return {term for term in terms if term}
+    return {term for term in terms if term and term not in GENERIC_OBJECT_TERMS}
 
 
 def compatible_object(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
@@ -108,6 +133,29 @@ def compatible_object(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
     return bool(object_terms(item_a) & object_terms(item_b))
 
 
+def compatible_structured_object(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
+    """Strict object comparison for structured contradictions.
+
+    Loose topic/token overlap is useful as a fallback for unstructured claims, but
+    it is too broad for structured conflicts because many extracted user claims
+    share boilerplate such as "用户原话片段". Structured conflicts require an exact
+    canonical object match or a meaningful object containment relation.
+    """
+    structured_a = item_a.get("structured", {})
+    structured_b = item_b.get("structured", {})
+    key_a = str(structured_a.get("object_key") or canonical_object(structured_a.get("object") or item_a.get("claim", "")))
+    key_b = str(structured_b.get("object_key") or canonical_object(structured_b.get("object") or item_b.get("claim", "")))
+    if key_a and key_b and key_a == key_b and key_a not in {"unknown"}:
+        return True
+    object_a = normalize_text(str(structured_a.get("object", "")))
+    object_b = normalize_text(str(structured_b.get("object", "")))
+    if not object_a or not object_b:
+        return False
+    if len(object_a) < 12 or len(object_b) < 12:
+        return False
+    return object_a in object_b or object_b in object_a
+
+
 def structured_conflict_topics(item_a: dict[str, Any], item_b: dict[str, Any]) -> list[str]:
     if not item_a.get("structured") or not item_b.get("structured"):
         return []
@@ -119,14 +167,15 @@ def structured_conflict_topics(item_a: dict[str, Any], item_b: dict[str, Any]) -
         return []
     if not compatible_subject(item_a, item_b):
         return []
-    if not compatible_predicate(item_a, item_b):
+    predicate_a = normalize_text(str(item_a.get("structured", {}).get("predicate", "")))
+    predicate_b = normalize_text(str(item_b.get("structured", {}).get("predicate", "")))
+    if predicate_a != predicate_b or predicate_a not in STRUCTURED_CONFLICT_PREDICATES:
         return []
-    if not compatible_object(item_a, item_b):
+    if not compatible_structured_object(item_a, item_b):
         return []
     subject = str(item_a.get("structured", {}).get("subject") or item_b.get("structured", {}).get("subject") or "structured")
-    predicate = str(item_a.get("structured", {}).get("predicate") or item_b.get("structured", {}).get("predicate") or "states")
     scope = structured_scope(item_a)
-    return [f"structured:{subject}:{predicate}:{scope}"]
+    return [f"structured:{subject}:{predicate_a}:{scope}"]
 
 
 def polarity_for(claim: str) -> str:
@@ -222,6 +271,8 @@ def detect(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 continue
             shared_topics = set(structured_conflict_topics(item_a, item_b))
             if not shared_topics and compatible_scope(item_a, item_b):
+                if item_a.get("structured") and item_b.get("structured") and not compatible_predicate(item_a, item_b):
+                    continue
                 shared_topics = topics_a & topics_for(str(item_b.get("claim", "")))
             for topic in sorted(shared_topics):
                 conflicts.append(make_conflict(item_a, item_b, topic))

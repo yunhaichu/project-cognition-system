@@ -28,6 +28,7 @@ DIRS = [
 EMPTY_JSONL = [
     "raw/user_utterances.jsonl",
     "raw/agent_interpretations.jsonl",
+    "raw/tool_evidence.jsonl",
     "raw/decisions.jsonl",
     "raw/conflicts.jsonl",
     "proposals/proposed_updates.jsonl",

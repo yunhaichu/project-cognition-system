@@ -774,6 +774,24 @@ def check_e2e_multi_transcript(project_root: Path) -> dict[str, bool]:
         "resolve_conflict.py",
         ["--conflict-id", first_conflict["id"], "--action", choose_action, "--reason", "E2E multi-transcript accepted rule wins."],
     )
+    items = read_json(table_path).get("items", [])
+    stale_related_ids = {
+        item["id"]
+        for item in items
+        if "临时错误说法" in json.dumps(item, ensure_ascii=False) and item.get("status") != "superseded"
+    }
+    conflicts = read_jsonl(conflicts_path)
+    for conflict in conflicts:
+        if conflict.get("resolution") != "unresolved":
+            continue
+        pair = {conflict.get("item_a"), conflict.get("item_b")}
+        if accepted_rule["id"] in pair and pair & stale_related_ids:
+            action = "choose-a" if conflict["item_a"] == accepted_rule["id"] else "choose-b"
+            run_script(
+                project_root,
+                "resolve_conflict.py",
+                ["--conflict-id", conflict["id"], "--action", action, "--reason", "E2E resolves all stale extracted variants."],
+            )
 
     items = read_json(table_path).get("items", [])
     world_state_yes = find_item(items, "待裁决规则 A", "WORLD_STATE")
@@ -965,6 +983,166 @@ def check_cross_reference_validation(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_evidence_lookup(project_root: Path) -> dict[str, bool]:
+    run_script(
+        project_root,
+        "ingest_session.py",
+        ["--input", str(CASE_FILE), "--session-id", "lookup_eval", "--source", "eval"],
+    )
+    world_before = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_before = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    index_result = run_script(project_root, "index_segments.py")
+    utterance = read_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl")[0]
+    exact = run_script(project_root, "lookup_evidence.py", ["--source-id", utterance["id"], "--limit", "3"])
+    query = run_script(project_root, "lookup_evidence.py", ["--query", "assistant 输出 核心事实", "--limit", "3"])
+    world_after = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_after = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    return {
+        "source_id_exact_lookup_pass": exact.get("matches", [{}])[0].get("source_id") == utterance["id"],
+        "lookup_returns_source_refs": index_result.get("segment_count", 0) >= 2
+        and bool(query.get("matches"))
+        and all(row.get("source_id") and row.get("source_type") and row.get("matched_text") for row in query.get("matches", [])),
+        "retrieval_does_not_bypass_review": world_before == world_after and table_before == table_after,
+    }
+
+
+def check_conflict_cluster_integrity(project_root: Path) -> dict[str, bool]:
+    a = item(
+        "cluster_user_a",
+        claim="Assistant output must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+    )
+    b = item(
+        "cluster_agent_b",
+        claim="Agent output may enter core memory.",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="agent output",
+        confidence=74,
+        status="candidate",
+    )
+    c = item(
+        "cluster_user_c",
+        claim="Assistant final answer must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final answer",
+    )
+    d = item(
+        "cluster_agent_d",
+        claim="Assistant output may enter core facts.",
+        source_type="agent_interpretation",
+        modality="may",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant output",
+        confidence=74,
+        status="candidate",
+    )
+    set_items(project_root, [a, b, c, d])
+    conflict_result = run_script(project_root, "detect_conflicts.py")
+    cluster_result = run_script(project_root, "cluster_conflicts.py")
+    clusters = cluster_result.get("clusters", [])
+    return {
+        "conflict_cluster_integrity": conflict_result.get("new_conflicts", 0) >= 2
+        and cluster_result.get("cluster_count") == 1
+        and clusters[0].get("member_count") == conflict_result.get("new_conflicts")
+        and len(clusters[0].get("cognition_ids", [])) == 4,
+    }
+
+
+def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
+    utterance = {
+        "id": "utt_compound",
+        "session_id": "compound_eval",
+        "timestamp": "2026-05-24T18:00:00Z",
+        "text": "assistant 输出可以进日志，但不能进入核心记忆；更新 WORLD_STATE 必须经过审查；需要按具体证据读取原文，不得注入全部历史上下文。",
+        "source": "eval",
+        "importance_score": 95,
+        "signals": {
+            "long_form": False,
+            "repeated": False,
+            "explicit_preference": True,
+            "explicit_rejection": True,
+            "strong_emphasis": True,
+        },
+        "linked_topics": ["memory", "world_state", "review_flow"],
+        "notes": "",
+    }
+    write_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl", [utterance])
+    run_script(project_root, "extract_candidates.py")
+    items = read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])
+    predicates = {row.get("structured", {}).get("predicate") for row in items}
+    object_keys = {row.get("structured", {}).get("object_key") for row in items}
+    return {
+        "compound_sentence_splits_multiple_claims": {"store_log", "enter_core_memory", "require_review", "read_source", "inject_context"}
+        <= predicates
+        and {"assistant_output", "world_state", "history_context"} <= object_keys,
+    }
+
+
+def check_drift_report(project_root: Path) -> dict[str, bool]:
+    run_minimal_pipeline(project_root)
+    run_script(project_root, "cluster_conflicts.py")
+    ok_report = run_script(project_root, "drift_report.py")
+
+    stale = item(
+        "stale_revived",
+        claim="Superseded rule should not re-enter world state.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="render",
+        object_value="stale rule",
+        status="superseded",
+    )
+    stale["evidence"] = []
+    stale["structured"]["source_refs"] = []
+    stale["include_in_world_state"] = True
+    set_items(project_root, [stale])
+    stale_status = run_script_status(project_root, "drift_report.py")
+    stale_report = json.loads(stale_status.stdout)
+
+    assistant_only = item(
+        "assistant_only_core",
+        claim="Agent-only interpretation should not become core.",
+        source_type="agent_interpretation",
+        modality="must",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final answer",
+        status="candidate",
+        confidence=74,
+    )
+    assistant_only["evidence"] = []
+    assistant_only["structured"]["source_refs"] = []
+    assistant_only["include_in_world_state"] = True
+    set_items(project_root, [assistant_only])
+    assistant_status = run_script_status(project_root, "drift_report.py")
+    assistant_report = json.loads(assistant_status.stdout)
+    return {
+        "drift_report_blocks_stale_revival": ok_report.get("ok") is True
+        and stale_status.returncode != 0
+        and "stale_rule_revived" in stale_report.get("hard_failures", []),
+        "assistant_only_still_never_core": assistant_status.returncode != 0
+        and "assistant_only_entered_core" in assistant_report.get("hard_failures", []),
+    }
+
+
 def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
     steps = {
         "ingest": run_script(
@@ -1077,6 +1255,10 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("multi_session_evolution", check_multi_session_evolution),
         ("e2e_multi_transcript", check_e2e_multi_transcript),
         ("cross_reference_validation", check_cross_reference_validation),
+        ("evidence_lookup", check_evidence_lookup),
+        ("conflict_clustering", check_conflict_cluster_integrity),
+        ("compound_sentence_extraction", check_compound_sentence_extraction),
+        ("drift_report", check_drift_report),
         ("dogfood_self_update", check_dogfood_self_update),
         ("long_dogfood_transcript", check_long_dogfood_transcript),
     ]:

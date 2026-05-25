@@ -26,6 +26,17 @@ from common import (
 KEYWORD_RE = re.compile(
     r"(用户原话|用户画像|AGENTS\.md|每个项目|项目文件夹|最高权重|不能|不得|不要|禁止|必须|需要|核心|目标|本质|原则|置信度|冲突|conflict|审查|跑偏|漂移|误解|污染|WORLD_STATE|memory\.md|RAG|数据库|Web UI|日志|tool evidence|structured|eval scenarios|scoring)"
 )
+META_EVALUATION_RE = re.compile(
+    r"(评价|判断|分数|进度判断|短板|剩余问题|下一步|我看到|当前提交|这轮|这个改动很关键|"
+    r"这类显性矛盾|正好解决|能覆盖|还不能|不够|不能长期只靠|说明它|意味着)"
+)
+ASSISTANT_OUTPUT_RE = re.compile(r"(assistant|agent|助手|最终|回答|输出|answer|output)", re.IGNORECASE)
+CORE_MEMORY_RE = re.compile(r"(核心记忆|核心事实|core memory|核心认知)", re.IGNORECASE)
+LOG_RE = re.compile(r"(日志|log)", re.IGNORECASE)
+WORLD_STATE_RE = re.compile(r"(WORLD_STATE|世界状态|项目世界观|核心状态)", re.IGNORECASE)
+REVIEW_RE = re.compile(r"(审查|review|proposal|proposed|人工)", re.IGNORECASE)
+SOURCE_RE = re.compile(r"(原文|原话|证据|source|source_refs|回查|读取|定位)", re.IGNORECASE)
+HISTORY_CONTEXT_RE = re.compile(r"(全部上下文|所有历史|历史上下文|raw|logs|history|塞给模型|注入)", re.IGNORECASE)
 
 
 def split_fragments(text: str) -> list[str]:
@@ -72,6 +83,8 @@ def classify_claim(fragment: str) -> str:
 
 
 def modality_for(fragment: str) -> str:
+    if META_EVALUATION_RE.search(fragment):
+        return "unknown"
     if re.search(r"(不得|不要|不能|禁止|不可|不应该|不引入|不能进入|不是)", fragment):
         return "must_not"
     if re.search(r"(必须|需要|要求|只能|每次|应当|应该)", fragment):
@@ -81,6 +94,16 @@ def modality_for(fragment: str) -> str:
     if re.search(r"(不是|不属于)", fragment):
         return "is_not"
     return "unknown"
+
+
+def action_modality(fragment: str, default: str = "must") -> str:
+    if re.search(r"(不得|不要|不能|禁止|不可|不应该|不能进入|不得进入|不注入|不塞)", fragment):
+        return "must_not"
+    if re.search(r"(可以|允许|支持)", fragment):
+        return "may"
+    if re.search(r"(必须|需要|要求|只能|应当|应该)", fragment):
+        return "must"
+    return default
 
 
 def structured_claim(
@@ -142,10 +165,125 @@ def candidate_from_utterance(utterance: dict[str, Any], fragment: str) -> dict[s
             claim=claim,
             evidence=evidence,
             source_type="user_utterance",
-            subject="user_intent" if category == "user_principle" else "project_cognition_system",
+            subject="user_intent" if category == "user_principle" else ("risk" if category == "risk" else "project_cognition_system"),
             predicate=None,
         ),
     }
+
+
+def action_candidate_from_utterance(
+    utterance: dict[str, Any],
+    fragment: str,
+    *,
+    predicate: str,
+    subject: str,
+    object_value: str,
+    modality: str,
+    category: str = "constraint",
+) -> dict[str, Any]:
+    claim = f"用户原话动作：{predicate} / {fragment}"
+    evidence = [utterance["id"]]
+    structured = structured_claim(
+        category=category,
+        claim=claim,
+        evidence=evidence,
+        source_type="user_utterance",
+        subject=subject,
+        predicate=predicate,
+        object_value=object_value,
+        scope="project",
+    )
+    structured["modality"] = modality
+    return {
+        "id": stable_id("cog", category, predicate, object_value, claim, utterance["id"]),
+        "claim": claim,
+        "category": category,
+        "confidence": 0,
+        "evidence": evidence,
+        "conflicts": [],
+        "last_verified": now_iso(),
+        "stability": stability_for(category, utterance),
+        "include_in_world_state": False,
+        "source_type": "user_utterance",
+        "status": "candidate",
+        "topics": detect_topics(fragment),
+        "structured": structured,
+    }
+
+
+def action_candidates_from_utterance(utterance: dict[str, Any], fragment: str) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    if ASSISTANT_OUTPUT_RE.search(fragment) and LOG_RE.search(fragment):
+        candidates.append(
+            action_candidate_from_utterance(
+                utterance,
+                fragment,
+                predicate="store_log",
+                subject="assistant_output",
+                object_value="assistant final output",
+                modality="must" if re.search(r"(只能|必须|应当|应该)", fragment) else "may",
+            )
+        )
+    if (
+        ASSISTANT_OUTPUT_RE.search(fragment)
+        and CORE_MEMORY_RE.search(fragment)
+        and re.search(r"(进入|进|写入|作为|当作|保存到|enter|become)", fragment, re.IGNORECASE)
+    ):
+        candidates.append(
+            action_candidate_from_utterance(
+                utterance,
+                fragment,
+                predicate="enter_core_memory",
+                subject="assistant_output",
+                object_value="assistant final output",
+                modality=action_modality(fragment, "must_not" if re.search(r"(不|禁|only|只)", fragment, re.IGNORECASE) else "may"),
+            )
+        )
+    if REVIEW_RE.search(fragment) and (WORLD_STATE_RE.search(fragment) or CORE_MEMORY_RE.search(fragment) or re.search(r"(进入|写入|更新)", fragment)):
+        candidates.append(
+            action_candidate_from_utterance(
+                utterance,
+                fragment,
+                predicate="require_review",
+                subject="world_state",
+                object_value="world_state",
+                modality="must",
+            )
+        )
+    if WORLD_STATE_RE.search(fragment) and re.search(r"(自动|直接|随意|默认).{0,12}(更新|修改|改写|写入|重建)|更新|修改|改写|重建", fragment):
+        candidates.append(
+            action_candidate_from_utterance(
+                utterance,
+                fragment,
+                predicate="update_world_state",
+                subject="world_state",
+                object_value="world_state",
+                modality=action_modality(fragment, "must"),
+            )
+        )
+    if SOURCE_RE.search(fragment) and re.search(r"(指定|具体|按|需要|必须|只能|回查|读取|定位)", fragment):
+        candidates.append(
+            action_candidate_from_utterance(
+                utterance,
+                fragment,
+                predicate="read_source",
+                subject="evidence_lookup",
+                object_value="source evidence",
+                modality="must",
+            )
+        )
+    if HISTORY_CONTEXT_RE.search(fragment) and re.search(r"(上下文|历史|raw|logs|塞给模型|注入|批量|全部|所有)", fragment):
+        candidates.append(
+            action_candidate_from_utterance(
+                utterance,
+                fragment,
+                predicate="inject_context",
+                subject="history_context",
+                object_value="history context",
+                modality=action_modality(fragment, "must_not"),
+            )
+        )
+    return candidates
 
 
 def candidates_from_interpretation(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -243,7 +381,7 @@ def merge_candidates(existing: list[dict[str, Any]], new_candidates: list[dict[s
             for evidence_id in candidate.get("evidence", []):
                 if evidence_id not in current["evidence"]:
                     current["evidence"].append(evidence_id)
-            if "structured" not in current and candidate.get("structured"):
+            if candidate.get("structured"):
                 current["structured"] = candidate["structured"]
         elif candidate["id"] not in by_id:
             by_id[candidate["id"]] = candidate
@@ -261,6 +399,7 @@ def main() -> None:
     for utterance in read_jsonl(USER_UTTERANCES):
         for fragment in split_fragments(str(utterance.get("text", ""))):
             candidates.append(candidate_from_utterance(utterance, fragment))
+            candidates.extend(action_candidates_from_utterance(utterance, fragment))
             if len(candidates) >= args.max_new:
                 break
         if len(candidates) >= args.max_new:

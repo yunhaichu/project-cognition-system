@@ -11,6 +11,8 @@ venv/
 .project_cognition/logs/**/*.jsonl
 .project_cognition/proposals/*.jsonl
 .project_cognition/distilled/scoring_feedback.jsonl
+.project_cognition/distilled/conflict_clusters.json
+.project_cognition/index/
 
 # Keep empty placeholders.
 !.project_cognition/raw/user_utterances.jsonl
