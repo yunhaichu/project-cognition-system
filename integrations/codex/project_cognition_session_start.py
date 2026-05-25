@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
+
 from project_cognition_common import (
     emit_additional_context,
     emit_empty,
@@ -15,6 +17,8 @@ from project_cognition_common import (
 
 
 MAX_CONTEXT_CHARS = 1600
+PRE_HOOK_TIMEOUT = int(os.environ.get("PROJECT_COGNITION_CODEX_SESSION_START_TIMEOUT", "30"))
+PROFILE_TIMEOUT = int(os.environ.get("PROJECT_COGNITION_CODEX_PROFILE_TIMEOUT", "15"))
 CONTEXT_MINIMALISM_NOTICE = (
     "Context Minimal Mode: use current command + global protocol + compact project state. "
     "Do not rely on thread history; read specific original sources only when needed."
@@ -29,7 +33,7 @@ def run_pre_hook(project_root):
     ]
     completed = None
     for args in attempts:
-        completed = run_project_script(project_root, "codex_pre_hook.py", args, 10)
+        completed = run_project_script(project_root, "codex_pre_hook.py", args, PRE_HOOK_TIMEOUT)
         if completed.returncode == 0 and completed.stdout.strip():
             return completed, args
     return completed, attempts[-1]
@@ -56,7 +60,7 @@ def main() -> int:
 
     try:
         runtime_sync = ensure_project_runtime(project_root)
-        profile_completed = run_project_script(project_root, "build_user_profile.py", [], 15)
+        profile_completed = run_project_script(project_root, "build_user_profile.py", [], PROFILE_TIMEOUT)
         event["user_profile"] = {
             "runtime_sync": runtime_sync,
             "returncode": profile_completed.returncode,

@@ -38,7 +38,9 @@ _HERMES_USER_PROFILE = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".he
 _MAX_CONTEXT_CHARS = int(os.environ.get("HERMES_PROJECT_COGNITION_MAX_CONTEXT_CHARS", "1600"))
 _INJECT_MODE = os.environ.get("HERMES_PROJECT_COGNITION_INJECT_MODE", "once").lower()
 _RUN_POST_HOOK = os.environ.get("HERMES_PROJECT_COGNITION_RUN_POST_HOOK", "1").lower() in {"1", "true", "yes", "on"}
+_PRE_HOOK_TIMEOUT = int(os.environ.get("HERMES_PROJECT_COGNITION_PRE_TIMEOUT", "30"))
 _POST_HOOK_TIMEOUT = int(os.environ.get("HERMES_PROJECT_COGNITION_POST_TIMEOUT", "90"))
+_PROFILE_TIMEOUT = int(os.environ.get("HERMES_PROJECT_COGNITION_PROFILE_TIMEOUT", "15"))
 
 _PROJECT_MARKER_FILES = {
     ".git",
@@ -312,7 +314,7 @@ def _run_pre_hook(project_root: Path) -> tuple[subprocess.CompletedProcess[str],
     ]
     completed: subprocess.CompletedProcess[str] | None = None
     for args in attempts:
-        completed = _run_project_script(project_root, "codex_pre_hook.py", args, 10)
+        completed = _run_project_script(project_root, "codex_pre_hook.py", args, _PRE_HOOK_TIMEOUT)
         if completed.returncode == 0 and completed.stdout.strip():
             return completed, args
     assert completed is not None
@@ -377,7 +379,7 @@ def pre_llm_call_hook(session_id: str = None, user_message: str = None, **kwargs
 
     try:
         runtime_sync = _ensure_project_runtime(project_root)
-        profile_completed = _run_project_script(project_root, "build_user_profile.py", [], 15)
+        profile_completed = _run_project_script(project_root, "build_user_profile.py", [], _PROFILE_TIMEOUT)
         event["user_profile"] = {
             "runtime_sync": runtime_sync,
             "returncode": profile_completed.returncode,
@@ -464,7 +466,7 @@ def post_llm_call_hook(
         event["status"] = "captured_only"
 
     try:
-        profile_completed = _run_project_script(project_root, "build_user_profile.py", [], 15)
+        profile_completed = _run_project_script(project_root, "build_user_profile.py", [], _PROFILE_TIMEOUT)
         event["user_profile"] = {
             "returncode": profile_completed.returncode,
             "stdout": profile_completed.stdout[-2000:],
@@ -482,10 +484,11 @@ def register(ctx):
     ctx.register_hook("post_llm_call", post_llm_call_hook)
     logger.info(
         "Project Cognition plugin loaded: per-project compact mode, "
-        "max_context=%s, inject_mode=%s, run_post_hook=%s, post_timeout=%s, bootstrap_script=%s",
+        "max_context=%s, inject_mode=%s, run_post_hook=%s, pre_timeout=%s, post_timeout=%s, bootstrap_script=%s",
         _MAX_CONTEXT_CHARS,
         _INJECT_MODE,
         _RUN_POST_HOOK,
+        _PRE_HOOK_TIMEOUT,
         _POST_HOOK_TIMEOUT,
         _BOOTSTRAP_SCRIPT,
     )
