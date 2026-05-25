@@ -38,6 +38,7 @@ _HERMES_USER_PROFILE = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".he
 _MAX_CONTEXT_CHARS = int(os.environ.get("HERMES_PROJECT_COGNITION_MAX_CONTEXT_CHARS", "1600"))
 _INJECT_MODE = os.environ.get("HERMES_PROJECT_COGNITION_INJECT_MODE", "once").lower()
 _RUN_POST_HOOK = os.environ.get("HERMES_PROJECT_COGNITION_RUN_POST_HOOK", "1").lower() in {"1", "true", "yes", "on"}
+_POST_HOOK_TIMEOUT = int(os.environ.get("HERMES_PROJECT_COGNITION_POST_TIMEOUT", "90"))
 
 _PROJECT_MARKER_FILES = {
     ".git",
@@ -54,6 +55,27 @@ _PROJECT_MARKER_FILES = {
     "Makefile",
 }
 _PROJECT_MARKER_SUFFIXES = {".xcodeproj", ".xcworkspace"}
+_RUNTIME_SCRIPT_NAMES = [
+    "common.py",
+    "ingest_session.py",
+    "extract_candidates.py",
+    "score_candidates.py",
+    "detect_conflicts.py",
+    "cluster_conflicts.py",
+    "build_world_state.py",
+    "build_user_profile.py",
+    "index_segments.py",
+    "lookup_evidence.py",
+    "drift_report.py",
+    "review_conflict_cluster.py",
+    "codex_pre_hook.py",
+    "codex_post_hook.py",
+    "update_scoring_weights.py",
+    "validate_state.py",
+    "resolve_conflict.py",
+    "propose_update.py",
+    "review_update.py",
+]
 
 _CONTEXT_MINIMALISM_NOTICE = (
     "Context Minimal Mode: use current command + global protocol + compact project state. "
@@ -233,16 +255,37 @@ def _project_cognition_env() -> dict[str, str]:
     return env
 
 
+def _files_differ(source: Path, destination: Path) -> bool:
+    if not destination.exists():
+        return True
+    try:
+        return source.read_bytes() != destination.read_bytes()
+    except OSError:
+        return True
+
+
 def _ensure_project_script(project_root: Path, script_name: str) -> bool:
     source = _BOOTSTRAP_SCRIPT.parent / script_name
     destination = project_root / ".project_cognition" / "scripts" / script_name
-    if destination.exists():
+    if destination.exists() and not _files_differ(source, destination):
         return False
     if not source.exists():
         raise FileNotFoundError(f"Project cognition runtime script not found: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
     return True
+
+
+def _ensure_project_runtime(project_root: Path, script_names: list[str] | None = None) -> dict[str, Any]:
+    copied: list[str] = []
+    missing: list[str] = []
+    for script_name in script_names or _RUNTIME_SCRIPT_NAMES:
+        try:
+            if _ensure_project_script(project_root, script_name):
+                copied.append(script_name)
+        except FileNotFoundError:
+            missing.append(script_name)
+    return {"copied": copied, "missing": missing}
 
 
 def _log_event(event: dict[str, Any]) -> None:
@@ -333,10 +376,10 @@ def pre_llm_call_hook(session_id: str = None, user_message: str = None, **kwargs
         return None
 
     try:
-        copied = _ensure_project_script(project_root, "build_user_profile.py")
+        runtime_sync = _ensure_project_runtime(project_root)
         profile_completed = _run_project_script(project_root, "build_user_profile.py", [], 15)
         event["user_profile"] = {
-            "runtime_copied": copied,
+            "runtime_sync": runtime_sync,
             "returncode": profile_completed.returncode,
             "stdout": profile_completed.stdout[-2000:],
             "stderr": profile_completed.stderr[-2000:],
@@ -403,6 +446,7 @@ def post_llm_call_hook(
     event["turn_file"] = str(turn_file)
 
     if _RUN_POST_HOOK:
+        event["runtime_sync"] = _ensure_project_runtime(project_root)
         args = [
             "--session-jsonl",
             str(turn_file),
@@ -411,7 +455,7 @@ def post_llm_call_hook(
             "--source",
             "hermes_hook",
         ]
-        completed = _run_project_script(project_root, "codex_post_hook.py", args, 45)
+        completed = _run_project_script(project_root, "codex_post_hook.py", args, _POST_HOOK_TIMEOUT)
         event["returncode"] = completed.returncode
         event["stdout"] = completed.stdout[-4000:]
         event["stderr"] = completed.stderr[-4000:]
@@ -420,10 +464,8 @@ def post_llm_call_hook(
         event["status"] = "captured_only"
 
     try:
-        copied = _ensure_project_script(project_root, "build_user_profile.py")
         profile_completed = _run_project_script(project_root, "build_user_profile.py", [], 15)
         event["user_profile"] = {
-            "runtime_copied": copied,
             "returncode": profile_completed.returncode,
             "stdout": profile_completed.stdout[-2000:],
             "stderr": profile_completed.stderr[-2000:],
@@ -440,9 +482,10 @@ def register(ctx):
     ctx.register_hook("post_llm_call", post_llm_call_hook)
     logger.info(
         "Project Cognition plugin loaded: per-project compact mode, "
-        "max_context=%s, inject_mode=%s, run_post_hook=%s, bootstrap_script=%s",
+        "max_context=%s, inject_mode=%s, run_post_hook=%s, post_timeout=%s, bootstrap_script=%s",
         _MAX_CONTEXT_CHARS,
         _INJECT_MODE,
         _RUN_POST_HOOK,
+        _POST_HOOK_TIMEOUT,
         _BOOTSTRAP_SCRIPT,
     )

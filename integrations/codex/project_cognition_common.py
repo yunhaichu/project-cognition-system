@@ -36,6 +36,27 @@ PROJECT_MARKER_FILES = {
     "Makefile",
 }
 PROJECT_MARKER_SUFFIXES = {".xcodeproj", ".xcworkspace"}
+RUNTIME_SCRIPT_NAMES = [
+    "common.py",
+    "ingest_session.py",
+    "extract_candidates.py",
+    "score_candidates.py",
+    "detect_conflicts.py",
+    "cluster_conflicts.py",
+    "build_world_state.py",
+    "build_user_profile.py",
+    "index_segments.py",
+    "lookup_evidence.py",
+    "drift_report.py",
+    "review_conflict_cluster.py",
+    "codex_pre_hook.py",
+    "codex_post_hook.py",
+    "update_scoring_weights.py",
+    "validate_state.py",
+    "resolve_conflict.py",
+    "propose_update.py",
+    "review_update.py",
+]
 
 
 def now_iso() -> str:
@@ -203,16 +224,37 @@ def run_project_script(project_root: Path, script_name: str, args: list[str], ti
     )
 
 
+def files_differ(source: Path, destination: Path) -> bool:
+    if not destination.exists():
+        return True
+    try:
+        return source.read_bytes() != destination.read_bytes()
+    except OSError:
+        return True
+
+
 def ensure_project_script(project_root: Path, script_name: str) -> bool:
     source = BOOTSTRAP_SCRIPT.parent / script_name
     destination = project_root / ".project_cognition" / "scripts" / script_name
-    if destination.exists():
+    if destination.exists() and not files_differ(source, destination):
         return False
     if not source.exists():
         raise FileNotFoundError(f"Project cognition runtime script not found: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
     return True
+
+
+def ensure_project_runtime(project_root: Path, script_names: list[str] | None = None) -> dict[str, Any]:
+    copied: list[str] = []
+    missing: list[str] = []
+    for script_name in script_names or RUNTIME_SCRIPT_NAMES:
+        try:
+            if ensure_project_script(project_root, script_name):
+                copied.append(script_name)
+        except FileNotFoundError:
+            missing.append(script_name)
+    return {"copied": copied, "missing": missing}
 
 
 def emit_additional_context(text: str) -> None:
@@ -223,4 +265,3 @@ def emit_additional_context(text: str) -> None:
 def emit_empty() -> None:
     json.dump({"hookSpecificOutput": {}}, sys.stdout)
     sys.stdout.write("\n")
-

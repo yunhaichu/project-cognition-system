@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from project_cognition_common import (
     emit_empty,
-    ensure_project_script,
+    ensure_project_runtime,
     find_or_bootstrap_project_root,
     hook_value,
     log_event,
@@ -14,6 +15,9 @@ from project_cognition_common import (
     resolve_cwd,
     run_project_script,
 )
+
+
+POST_HOOK_TIMEOUT = int(os.environ.get("PROJECT_COGNITION_CODEX_STOP_TIMEOUT", "90"))
 
 
 def main() -> int:
@@ -46,7 +50,8 @@ def main() -> int:
         args.append("--skip-ingest")
 
     try:
-        completed = run_project_script(project_root, "codex_post_hook.py", args, 45)
+        event["runtime_sync"] = ensure_project_runtime(project_root)
+        completed = run_project_script(project_root, "codex_post_hook.py", args, POST_HOOK_TIMEOUT)
         event["returncode"] = completed.returncode
         event["stdout"] = completed.stdout[-4000:]
         event["stderr"] = completed.stderr[-4000:]
@@ -56,10 +61,8 @@ def main() -> int:
         event["error"] = repr(exc)
 
     try:
-        copied = ensure_project_script(project_root, "build_user_profile.py")
         profile_completed = run_project_script(project_root, "build_user_profile.py", [], 15)
         event["user_profile"] = {
-            "runtime_copied": copied,
             "returncode": profile_completed.returncode,
             "stdout": profile_completed.stdout[-2000:],
             "stderr": profile_completed.stderr[-2000:],
@@ -74,4 +77,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

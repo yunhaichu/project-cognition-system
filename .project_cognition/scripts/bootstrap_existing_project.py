@@ -21,6 +21,7 @@ DIRS = [
     "logs/tool_calls",
     "logs/outputs",
     "logs/file_changes",
+    "index",
     "scripts",
     "schemas",
 ]
@@ -240,7 +241,16 @@ def ingest_histories(target_root: Path, histories: list[Path], session_prefix: s
 
 def rebuild_world_state(target_root: Path) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
-    for script_name in ["extract_candidates.py", "score_candidates.py", "detect_conflicts.py", "build_world_state.py", "build_user_profile.py"]:
+    for script_name in [
+        "extract_candidates.py",
+        "score_candidates.py",
+        "detect_conflicts.py",
+        "cluster_conflicts.py",
+        "build_world_state.py",
+        "build_user_profile.py",
+        "index_segments.py",
+        "drift_report.py",
+    ]:
         steps.append(run_target_script(target_root, script_name, []))
     return steps
 

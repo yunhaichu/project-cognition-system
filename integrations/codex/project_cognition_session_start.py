@@ -4,7 +4,7 @@ from __future__ import annotations
 from project_cognition_common import (
     emit_additional_context,
     emit_empty,
-    ensure_project_script,
+    ensure_project_runtime,
     find_or_bootstrap_project_root,
     log_event,
     now_iso,
@@ -55,10 +55,10 @@ def main() -> int:
         return 0
 
     try:
-        copied = ensure_project_script(project_root, "build_user_profile.py")
+        runtime_sync = ensure_project_runtime(project_root)
         profile_completed = run_project_script(project_root, "build_user_profile.py", [], 15)
         event["user_profile"] = {
-            "runtime_copied": copied,
+            "runtime_sync": runtime_sync,
             "returncode": profile_completed.returncode,
             "stdout": profile_completed.stdout[-2000:],
             "stderr": profile_completed.stderr[-2000:],
@@ -86,4 +86,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

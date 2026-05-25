@@ -58,8 +58,11 @@ def run_post_hook(session_jsonl: str | None, session_id: str, source: str, skip_
         "extract_candidates.py",
         "score_candidates.py",
         "detect_conflicts.py",
+        "cluster_conflicts.py",
         "build_world_state.py",
         "build_user_profile.py",
+        "index_segments.py",
+        "drift_report.py",
     ]:
         steps.append(run_step(script_name, []))
         require_success(steps[-1])
@@ -112,9 +115,13 @@ def main() -> None:
         "ingested": summary["ingested"],
         "local_only": summary["local_only"],
         "step_count": len(summary["steps"]),
+        "step_scripts": [step["script"] for step in summary["steps"]],
         "world_state": step_by_script.get("build_world_state.py", {}).get("stdout"),
         "user_profile": step_by_script.get("build_user_profile.py", {}).get("stdout"),
         "conflicts": step_by_script.get("detect_conflicts.py", {}).get("stdout"),
+        "conflict_clusters": step_by_script.get("cluster_conflicts.py", {}).get("stdout"),
+        "evidence_index": step_by_script.get("index_segments.py", {}).get("stdout"),
+        "drift": step_by_script.get("drift_report.py", {}).get("stdout"),
     }
     print(json.dumps(compact, ensure_ascii=False, indent=2))
 

@@ -17,7 +17,7 @@ jobs:
           python-version: "3.12"
 
       - name: Compile Python scripts
-        run: python -m py_compile .project_cognition/scripts/*.py evals/run_minimal_eval.py
+        run: python -m py_compile .project_cognition/scripts/*.py integrations/codex/*.py integrations/hermes/*.py evals/run_minimal_eval.py
 
       - name: Validate bundled cognition state
         run: python .project_cognition/scripts/validate_state.py

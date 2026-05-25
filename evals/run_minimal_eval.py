@@ -1243,6 +1243,28 @@ def check_drift_report(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_post_hook_sidecar_pipeline(project_root: Path) -> dict[str, bool]:
+    result = run_script(
+        project_root,
+        "codex_post_hook.py",
+        ["--session-jsonl", str(CASE_FILE), "--session-id", "post_hook_sidecar", "--source", "eval"],
+    )
+    scripts = list(result.get("step_scripts", []))
+    cognition_root = project_root / ".project_cognition"
+    return {
+        "post_hook_runs_sidecars": all(
+            script in scripts
+            for script in ["cluster_conflicts.py", "index_segments.py", "drift_report.py"]
+        ),
+        "post_hook_reports_sidecars": bool(result.get("conflict_clusters"))
+        and bool(result.get("evidence_index"))
+        and bool(result.get("drift"))
+        and result.get("drift", {}).get("ok") is True,
+        "post_hook_writes_sidecar_outputs": (cognition_root / "index" / "segments.jsonl").exists()
+        and (cognition_root / "distilled" / "conflict_clusters.json").exists(),
+    }
+
+
 def check_dogfood_self_update(project_root: Path) -> dict[str, bool]:
     steps = {
         "ingest": run_script(
@@ -1360,6 +1382,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("conflict_cluster_review", check_conflict_cluster_review),
         ("compound_sentence_extraction", check_compound_sentence_extraction),
         ("drift_report", check_drift_report),
+        ("post_hook_sidecar_pipeline", check_post_hook_sidecar_pipeline),
         ("dogfood_self_update", check_dogfood_self_update),
         ("long_dogfood_transcript", check_long_dogfood_transcript),
     ]:
