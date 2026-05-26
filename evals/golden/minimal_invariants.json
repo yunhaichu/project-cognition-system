@@ -29,7 +29,7 @@
     "multi_session_evolution": ["old_rule_not_revived", "deferred_not_leak", "compact_uses_current_rule"],
     "e2e_multi_transcript": ["e2e_transcripts_ingested", "e2e_reviewed_rule_enters_compact", "e2e_stale_rule_superseded", "e2e_deferred_conflict_blocked", "e2e_assistant_outputs_logged_only"],
     "cross_reference_validation": ["valid_references_pass", "dangling_conflict_detected", "dangling_evidence_detected"],
-    "evidence_lookup": ["source_id_exact_lookup_pass", "lookup_returns_source_refs", "retrieval_does_not_bypass_review"],
+    "evidence_lookup": ["source_id_exact_lookup_pass", "lookup_returns_source_refs", "retrieval_does_not_bypass_review", "retrieval_index_does_not_split_records", "lookup_preview_not_authoritative"],
     "index_cache": ["first_index_builds", "unchanged_index_skips", "index_summary_hides_fingerprint"],
     "hook_runtime_hygiene": ["runtime_sync_copies_schemas", "post_hook_summary_omits_cluster_members", "post_hook_summary_omits_fingerprint", "post_hook_summary_keeps_metrics"],
     "legacy_state_migration": ["legacy_report_detects_orphan", "legacy_repair_backs_up_derived", "legacy_repair_quarantines_orphan", "legacy_repair_keeps_raw_evidence", "legacy_orphan_not_core_after_repair", "legacy_repair_validates_state"],

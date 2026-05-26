@@ -19,6 +19,8 @@ Tool calls are split into audit logs and formal evidence:
 
 Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_result`, `web_result`, and `command_output`. The scoring layer indexes `tool_evidence` directly. Deterministic test, git, and filesystem results score above agent interpretation. Web results and generic command output are weaker. Tool-only candidates remain below automatic `WORLD_STATE.md` inclusion unless accepted through review.
 
+The retrieval sidecar is record-level. It may score or vectorize whole user utterance, tool evidence, or tool-call records, but it must not split those records into authoritative memory chunks. Lookup results can show short previews for triage, yet the stable evidence remains the full raw record addressed by `source_id` and `path`.
+
 ## Structured Cognition
 
 Candidates keep a human-readable `claim`, but also carry a minimal structured object:

@@ -67,6 +67,10 @@ def lookup(query: str = "", source_id: str = "", limit: int = 5, auto_build: boo
                 "path": segment.get("path", ""),
                 "score": score,
                 "matched_text": trim_text(str(segment.get("text", "")), 500),
+                "matched_text_is_preview": True,
+                "record_level": bool(segment.get("record_level", False)),
+                "chunked": bool(segment.get("chunked", True)),
+                "record_characters": int(segment.get("record_characters", len(str(segment.get("text", ""))))),
                 "topics": segment.get("topics", []),
             }
         )
@@ -76,7 +80,7 @@ def lookup(query: str = "", source_id: str = "", limit: int = 5, auto_build: boo
         "source_id": source_id,
         "match_count": len(matches),
         "matches": matches[:limit],
-        "note": "Lookup returns grounded source snippets only. It does not update WORLD_STATE.",
+        "note": "Lookup returns source ids plus non-authoritative previews. Read the full source record by source_id before using it as evidence. It does not update WORLD_STATE.",
     }
 
 

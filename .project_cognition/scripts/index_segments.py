@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +23,6 @@ from common import (
 
 
 DEFAULT_MAX_CHARS = 900
-DEFAULT_OVERLAP = 120
 
 
 def relative(path: Path) -> str:
@@ -34,32 +32,8 @@ def relative(path: Path) -> str:
         return str(path)
 
 
-def split_text(text: str, max_chars: int = DEFAULT_MAX_CHARS, overlap: int = DEFAULT_OVERLAP) -> list[str]:
-    collapsed = re.sub(r"\s+", " ", str(text)).strip()
-    if not collapsed:
-        return []
-    if len(collapsed) <= max_chars:
-        return [collapsed]
-
-    chunks: list[str] = []
-    start = 0
-    while start < len(collapsed):
-        end = min(len(collapsed), start + max_chars)
-        if end < len(collapsed):
-            boundary = max(
-                collapsed.rfind("。", start, end),
-                collapsed.rfind(".", start, end),
-                collapsed.rfind("；", start, end),
-                collapsed.rfind(";", start, end),
-                collapsed.rfind(" ", start, end),
-            )
-            if boundary > start + max_chars // 2:
-                end = boundary + 1
-        chunks.append(collapsed[start:end].strip())
-        if end >= len(collapsed):
-            break
-        start = max(end - overlap, start + 1)
-    return [chunk for chunk in chunks if chunk]
+def record_text(text: str) -> str:
+    return "\n".join(str(text).strip().splitlines())
 
 
 def segment_record(
@@ -73,23 +47,26 @@ def segment_record(
     topics: list[str] | None = None,
     max_chars: int = DEFAULT_MAX_CHARS,
 ) -> list[dict[str, Any]]:
-    segments: list[dict[str, Any]] = []
-    for index, chunk in enumerate(split_text(text, max_chars=max_chars)):
-        segments.append(
-            {
-                "id": stable_id("seg", source_type, source_id, str(index), chunk),
-                "source_id": source_id,
-                "source_type": source_type,
-                "session_id": session_id,
-                "timestamp": timestamp,
-                "path": relative(path),
-                "segment_index": index,
-                "text": chunk,
-                "snippet": trim_text(chunk, 320),
-                "topics": topics or [],
-            }
-        )
-    return segments
+    full_text = record_text(text)
+    if not full_text:
+        return []
+    return [
+        {
+            "id": stable_id("seg", source_type, source_id, "record"),
+            "source_id": source_id,
+            "source_type": source_type,
+            "session_id": session_id,
+            "timestamp": timestamp,
+            "path": relative(path),
+            "segment_index": 0,
+            "text": full_text,
+            "snippet": trim_text(full_text, 320),
+            "topics": topics or [],
+            "record_level": True,
+            "chunked": False,
+            "record_characters": len(full_text),
+        }
+    ]
 
 
 def user_segments(max_chars: int) -> list[dict[str, Any]]:
@@ -173,7 +150,7 @@ def source_fingerprint(max_chars: int, include_tool_logs: bool) -> dict[str, Any
             }
         )
     return {
-        "max_chars": max_chars,
+        "indexing_mode": "record_level_no_split",
         "include_tool_logs": include_tool_logs,
         "files": files,
     }
@@ -185,6 +162,21 @@ def public_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     files = fingerprint.get("files", []) if isinstance(fingerprint, dict) else []
     result["source_file_count"] = len(files)
     return result
+
+
+def dedupe_records(segments: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict[str, Any]] = []
+    duplicates = 0
+    for segment in segments:
+        source_id = str(segment.get("source_id", ""))
+        key = (str(segment.get("source_type", "")), source_id or str(segment.get("id", "")))
+        if key in seen:
+            duplicates += 1
+            continue
+        seen.add(key)
+        unique.append(segment)
+    return unique, duplicates
 
 
 def build_index(max_chars: int = DEFAULT_MAX_CHARS, include_tool_logs: bool = True, force: bool = False) -> dict[str, Any]:
@@ -203,6 +195,7 @@ def build_index(max_chars: int = DEFAULT_MAX_CHARS, include_tool_logs: bool = Tr
     segments = [*user_segments(max_chars), *tool_evidence_segments(max_chars)]
     if include_tool_logs:
         segments.extend(tool_call_segments(max_chars))
+    segments, duplicate_records = dedupe_records(segments)
 
     write_jsonl(SEGMENT_INDEX, segments)
     source_types: dict[str, int] = {}
@@ -213,18 +206,21 @@ def build_index(max_chars: int = DEFAULT_MAX_CHARS, include_tool_logs: bool = Tr
         "segment_count": len(segments),
         "source_types": source_types,
         "index": str(SEGMENT_INDEX),
+        "indexing_mode": "record_level_no_split",
         "local_only": True,
         "skipped": False,
+        "duplicate_records_dropped": duplicate_records,
         "source_fingerprint": fingerprint,
-        "note": "Read-only evidence lookup sidecar. It does not update WORLD_STATE.",
+        "no_split_policy": "Retrieval may rank or embed whole evidence records, but must not split records into authoritative memory chunks.",
+        "note": "Read-only record-level evidence lookup sidecar. It does not split evidence and does not update WORLD_STATE.",
     }
     write_json(INDEX_MANIFEST, manifest)
     return public_manifest(manifest)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a local evidence segment index for on-demand lookup.")
-    parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS, help="Maximum characters per segment.")
+    parser = argparse.ArgumentParser(description="Build a local record-level evidence lookup index for on-demand lookup.")
+    parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS, help="Deprecated compatibility flag. Evidence is indexed as whole records.")
     parser.add_argument("--skip-tool-logs", action="store_true", help="Index raw tool evidence but skip logs/tool_calls/*.jsonl.")
     parser.add_argument("--force", action="store_true", help="Rebuild the index even when indexed source files are unchanged.")
     args = parser.parse_args()

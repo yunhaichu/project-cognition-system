@@ -996,6 +996,7 @@ def check_evidence_lookup(project_root: Path) -> dict[str, bool]:
     world_before = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
     table_before = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
     index_result = run_script(project_root, "index_segments.py")
+    index_rows = read_jsonl(project_root / ".project_cognition" / "index" / "segments.jsonl")
     utterance = read_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl")[0]
     exact = run_script(project_root, "lookup_evidence.py", ["--source-id", utterance["id"], "--limit", "3"])
     query = run_script(project_root, "lookup_evidence.py", ["--query", "assistant 输出 核心事实", "--limit", "3"])
@@ -1007,6 +1008,11 @@ def check_evidence_lookup(project_root: Path) -> dict[str, bool]:
         and bool(query.get("matches"))
         and all(row.get("source_id") and row.get("source_type") and row.get("matched_text") for row in query.get("matches", [])),
         "retrieval_does_not_bypass_review": world_before == world_after and table_before == table_after,
+        "retrieval_index_does_not_split_records": bool(index_rows)
+        and all(row.get("record_level") is True and row.get("chunked") is False and row.get("segment_index") == 0 for row in index_rows)
+        and len({row.get("source_id") for row in index_rows}) == len(index_rows),
+        "lookup_preview_not_authoritative": bool(query.get("matches"))
+        and all(row.get("matched_text_is_preview") is True and row.get("record_level") is True for row in query.get("matches", [])),
     }
 
 
