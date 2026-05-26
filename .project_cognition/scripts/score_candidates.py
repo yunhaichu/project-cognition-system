@@ -13,6 +13,7 @@ from common import (
     TOOL_EVIDENCE,
     USER_UTTERANCES,
     LONG_TERM_RE,
+    classify_user_utterance_intent,
     confidence_table_items,
     read_json,
     read_jsonl,
@@ -28,6 +29,10 @@ DEFAULT_SIGNAL_WEIGHTS = {
     "user_strong_emphasis": 3.0,
     "user_long_term": 5.0,
     "user_profile_or_project_scope": 4.0,
+    "user_direct_intent": 2.0,
+    "user_mixed_request_with_quote": -4.0,
+    "user_quoted_evaluation": -8.0,
+    "user_external_commentary": -8.0,
     "tool_evidence": 4.0,
     "tool_test_result": 4.0,
     "tool_git_result": 3.0,
@@ -97,12 +102,19 @@ def score_item(
     has_agent_evidence = False
     has_tool_evidence = False
     evidence_types: set[str] = set()
+    utterance_intents: set[str] = set()
 
     for evidence_id in item.get("evidence", []):
         utterance = utterances.get(evidence_id)
         if utterance:
             has_user_evidence = True
             evidence_types.add("user_utterance")
+            intent = str(utterance.get("utterance_intent") or classify_user_utterance_intent(str(utterance.get("text", ""))))
+            utterance_intents.add(intent)
+            intent_signal = f"user_{intent}"
+            if intent_signal in signal_weights:
+                points += signal_weights[intent_signal]
+                matched_signals.append(intent_signal)
             signals = utterance.get("signals", {})
             if signals.get("long_form"):
                 points += signal_weights["user_long_form"]
@@ -176,9 +188,14 @@ def score_item(
     confidence = max(0, min(100, confidence))
     if has_tool_evidence and not has_user_evidence and item.get("status") != "accepted":
         confidence = min(89, confidence)
+    non_direct_intents = utterance_intents - {"direct_user_intent"}
+    if has_user_evidence and non_direct_intents and "direct_user_intent" not in utterance_intents and item.get("status") != "accepted":
+        confidence = min(84, confidence)
 
     item["confidence"] = confidence
     item["evidence_types"] = sorted(evidence_types)
+    if utterance_intents:
+        item["utterance_intents"] = sorted(utterance_intents)
     accepted_for_world_state = item.get("status") == "accepted" and (has_user_evidence or has_tool_evidence)
     requires_governance_gate = bool(
         (has_tool_evidence and not has_user_evidence and item.get("status") != "accepted")

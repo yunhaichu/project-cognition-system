@@ -27,7 +27,7 @@ MULTI_TRANSCRIPT_FILES = [
     REPO_ROOT / "evals" / "cases" / "multi_transcript" / "session4_deferred_conflict_b.jsonl",
 ]
 sys.path.insert(0, str(REPO_ROOT / ".project_cognition" / "scripts"))
-from common import canonical_object, normalize_predicate  # noqa: E402
+from common import canonical_object, classify_user_utterance_intent, normalize_predicate  # noqa: E402
 PREDICATES = {
     "states",
     "requires",
@@ -274,11 +274,15 @@ def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[st
     table = read_json(cognition_root / "distilled" / "confidence_table.json")
     items = table.get("items", [])
     tool_evidence = read_jsonl(cognition_root / "raw" / "tool_evidence.jsonl")
+    utterances = read_jsonl(cognition_root / "raw" / "user_utterances.jsonl")
     assistant_outputs = read_jsonl(cognition_root / "logs" / "outputs" / "eval_minimal.jsonl")
     compact_chars = len((cognition_root / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8"))
     tool_items = [row for row in items if row.get("source_type") == "tool_evidence"]
     return {
         "user_utterance_ingested": steps["ingest"]["counts"]["user"] == 1,
+        "user_utterance_intent_classified": bool(utterances)
+        and utterances[0].get("utterance_intent") == "direct_user_intent"
+        and classify_user_utterance_intent(str(utterances[0].get("text", ""))) == "direct_user_intent",
         "assistant_output_is_log": len(assistant_outputs) == 1,
         "tool_evidence_ingested": len(tool_evidence) == 1 and tool_evidence[0].get("evidence_kind") == "test_result",
         "tool_evidence_scored_explicitly": bool(tool_items)
@@ -1645,6 +1649,45 @@ def check_governance_gate_budget(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_quoted_evaluation_filter(project_root: Path) -> dict[str, bool]:
+    quoted_session = project_root / "quoted_evaluation_session.jsonl"
+    quoted_text = (
+        "你看一下gpt thinking模型的评价：\n"
+        "看到了最新提交，提交信息是 Add governance admission budgets。\n"
+        "这个改动很关键。它能处理你这个项目里最核心的几类边界冲突，比如 RAG、memory.md、上下文堆料、agent 输出能不能进记忆等；\n"
+        "进度判断：84%。\n"
+        "结论：这轮更新有效。"
+    )
+    write_jsonl(
+        quoted_session,
+        [{"role": "user", "content": quoted_text, "timestamp": "2026-05-26T04:30:00Z"}],
+    )
+    ingest = run_script(
+        project_root,
+        "ingest_session.py",
+        ["--input", str(quoted_session), "--session-id", "quoted_eval", "--source", "eval"],
+    )
+    extract = run_script(project_root, "extract_candidates.py")
+    score = run_script(project_root, "score_candidates.py")
+    run_script(project_root, "detect_conflicts.py")
+    run_script(project_root, "cluster_candidates.py")
+    gate = run_script(project_root, "auto_governance_gate.py")
+    build = run_script(project_root, "build_world_state.py")
+    utterance = read_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl")[0]
+    items = read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])
+    compact = (project_root / ".project_cognition" / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8")
+    return {
+        "quoted_utterance_intent_classified": ingest["counts"]["user"] == 1
+        and utterance.get("utterance_intent") in {"mixed_request_with_quote", "quoted_evaluation"},
+        "quoted_evaluation_not_extracted_as_core_candidate": extract.get("candidate_count") == 0
+        and score.get("include_in_world_state") == 0
+        and not items,
+        "quoted_evaluation_not_allowed_by_gate": gate.get("allowed_count") == 0 and build.get("included_count") == 0,
+        "quoted_evaluation_absent_from_compact": "它能处理你这个项目里最核心的几类边界冲突" not in compact
+        and "进度判断" not in compact,
+    }
+
+
 def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
     utterance = {
         "id": "utt_compound",
@@ -1900,6 +1943,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("candidate_clustering", check_candidate_clustering),
         ("auto_governance_gate", check_auto_governance_gate),
         ("governance_gate_budget", check_governance_gate_budget),
+        ("quoted_evaluation_filter", check_quoted_evaluation_filter),
         ("compound_sentence_extraction", check_compound_sentence_extraction),
         ("drift_report", check_drift_report),
         ("post_hook_sidecar_pipeline", check_post_hook_sidecar_pipeline),

@@ -65,8 +65,11 @@ def evidence_flags(item: dict[str, Any]) -> dict[str, bool]:
     evidence_types = set(str(value) for value in item.get("evidence_types", []))
     source_type = str(item.get("source_type", ""))
     score_signals = set(str(value) for value in item.get("score_signals", []))
+    utterance_intents = set(str(value) for value in item.get("utterance_intents", []))
     return {
         "has_user_evidence": "user_utterance" in evidence_types or source_type == "user_utterance",
+        "has_direct_user_evidence": not utterance_intents or "direct_user_intent" in utterance_intents,
+        "has_non_direct_user_evidence": bool(utterance_intents - {"direct_user_intent"}),
         "has_tool_evidence": "tool_evidence" in evidence_types or source_type == "tool_evidence",
         "has_agent_evidence": "agent_interpretation" in evidence_types or source_type == "agent_interpretation",
         "has_assistant_output": source_type == "assistant_output",
@@ -169,6 +172,9 @@ def decision_for_item(
     if flags["has_assistant_output"]:
         allowed = False
         reasons.append("assistant_output_log_only")
+    if flags["has_user_evidence"] and flags["has_non_direct_user_evidence"] and not flags["has_direct_user_evidence"]:
+        allowed = False
+        reasons.append("quoted_or_external_user_material_not_core")
     if flags["has_agent_evidence"] and not flags["has_user_evidence"] and not flags["has_tool_evidence"]:
         allowed = False
         reasons.append("agent_only_evidence")

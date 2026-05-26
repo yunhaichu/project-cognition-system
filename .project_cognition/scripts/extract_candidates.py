@@ -11,6 +11,7 @@ from common import (
     TOOL_EVIDENCE,
     USER_UTTERANCES,
     canonical_object,
+    classify_user_utterance_intent,
     confidence_table_items,
     detect_topics,
     normalize_text,
@@ -143,6 +144,14 @@ def stability_for(category: str, source: dict[str, Any]) -> str:
     return "evolving"
 
 
+def utterance_intent(utterance: dict[str, Any]) -> str:
+    return str(utterance.get("utterance_intent") or classify_user_utterance_intent(str(utterance.get("text", ""))))
+
+
+def can_extract_core_candidates(utterance: dict[str, Any]) -> bool:
+    return utterance_intent(utterance) == "direct_user_intent"
+
+
 def candidate_from_utterance(utterance: dict[str, Any], fragment: str) -> dict[str, Any]:
     category = classify_claim(fragment)
     claim = f"用户原话片段：{fragment}"
@@ -158,6 +167,7 @@ def candidate_from_utterance(utterance: dict[str, Any], fragment: str) -> dict[s
         "stability": stability_for(category, utterance),
         "include_in_world_state": False,
         "source_type": "user_utterance",
+        "utterance_intent": utterance_intent(utterance),
         "status": "candidate",
         "topics": detect_topics(fragment),
         "structured": structured_claim(
@@ -205,6 +215,7 @@ def action_candidate_from_utterance(
         "stability": stability_for(category, utterance),
         "include_in_world_state": False,
         "source_type": "user_utterance",
+        "utterance_intent": utterance_intent(utterance),
         "status": "candidate",
         "topics": detect_topics(fragment),
         "structured": structured,
@@ -397,6 +408,8 @@ def main() -> None:
 
     candidates: list[dict[str, Any]] = []
     for utterance in read_jsonl(USER_UTTERANCES):
+        if not can_extract_core_candidates(utterance):
+            continue
         for fragment in split_fragments(str(utterance.get("text", ""))):
             candidates.append(candidate_from_utterance(utterance, fragment))
             candidates.extend(action_candidates_from_utterance(utterance, fragment))

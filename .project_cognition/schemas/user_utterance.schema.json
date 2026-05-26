@@ -9,6 +9,10 @@
     "timestamp": {"type": "string"},
     "text": {"type": "string"},
     "source": {"type": "string"},
+    "utterance_intent": {
+      "type": "string",
+      "enum": ["direct_user_intent", "mixed_request_with_quote", "quoted_evaluation", "external_commentary"]
+    },
     "importance_score": {"type": "integer", "minimum": 0, "maximum": 100},
     "signals": {
       "type": "object",

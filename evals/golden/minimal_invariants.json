@@ -2,6 +2,7 @@
   "max_compact_chars": 1600,
   "required_checks": [
     "user_utterance_ingested",
+    "user_utterance_intent_classified",
     "assistant_output_is_log",
     "tool_evidence_ingested",
     "tool_evidence_scored_explicitly",
@@ -41,6 +42,7 @@
     "candidate_clustering": ["candidate_cluster_integrity", "same_claim_different_words_clustered", "different_scope_not_merged", "user_evidence_not_merged_into_agent_only", "candidate_cluster_does_not_update_state"],
     "auto_governance_gate": ["gate_allows_user_anchor", "gate_blocks_duplicate_candidates", "gate_blocks_agent_only_duplicate", "gate_blocks_low_confidence", "gate_blocks_unresolved_conflict", "gate_does_not_mutate_evidence_or_table", "build_world_state_uses_gate"],
     "governance_gate_budget": ["gate_budget_keeps_top_priority", "gate_budget_blocks_lower_priority", "world_state_uses_budgeted_gate", "budget_metrics_reported"],
+    "quoted_evaluation_filter": ["quoted_utterance_intent_classified", "quoted_evaluation_not_extracted_as_core_candidate", "quoted_evaluation_not_allowed_by_gate", "quoted_evaluation_absent_from_compact"],
     "compound_sentence_extraction": ["compound_sentence_splits_multiple_claims"],
     "drift_report": ["drift_report_blocks_stale_revival", "assistant_only_still_never_core", "ungoverned_candidate_still_never_core", "candidate_cluster_metrics_reported", "governance_gate_metrics_reported"],
     "post_hook_sidecar_pipeline": ["post_hook_runs_sidecars", "post_hook_reports_sidecars", "post_hook_writes_sidecar_outputs"],

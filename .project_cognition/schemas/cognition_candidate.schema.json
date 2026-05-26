@@ -17,6 +17,13 @@
     "status": {"type": "string"},
     "score_signals": {"type": "array", "items": {"type": "string"}},
     "evidence_types": {"type": "array", "items": {"type": "string"}},
+    "utterance_intents": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["direct_user_intent", "mixed_request_with_quote", "quoted_evaluation", "external_commentary"]
+      }
+    },
     "requires_review_for_world_state": {"type": "boolean"},
     "requires_governance_gate_for_world_state": {"type": "boolean"},
     "structured": {

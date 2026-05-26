@@ -41,6 +41,17 @@ def candidate_core_items(items: list[dict[str, Any]]) -> list[str]:
     )
 
 
+def non_direct_user_core_items(items: list[dict[str, Any]]) -> list[str]:
+    offenders: list[str] = []
+    for item in items:
+        if not item.get("include_in_world_state"):
+            continue
+        intents = set(str(value) for value in item.get("utterance_intents", []))
+        if intents and "direct_user_intent" not in intents:
+            offenders.append(str(item.get("id", "")))
+    return sorted(filter(None, offenders))
+
+
 def evidence_mix(items: list[dict[str, Any]]) -> dict[str, int]:
     counts = {"user_utterance": 0, "tool_evidence": 0, "agent_interpretation": 0, "assistant_output": 0, "other": 0}
     for item in items:
@@ -116,6 +127,7 @@ def build_report(
     stale_revived = stale_revived_items(items)
     assistant_only_core = assistant_only_core_items(items)
     candidate_core = candidate_core_items(items)
+    non_direct_user_core = non_direct_user_core_items(items)
     hard_failures: list[str] = []
     warnings: list[str] = []
 
@@ -129,6 +141,8 @@ def build_report(
         hard_failures.append("assistant_only_entered_core")
     if candidate_core:
         hard_failures.append("ungoverned_candidate_entered_core")
+    if non_direct_user_core:
+        hard_failures.append("quoted_or_external_user_material_entered_core")
     if len(high_unresolved) > max_high_severity_conflicts:
         warnings.append("conflict_budget_exceeded")
     if duplicate_candidate_ratio >= 0.5 and duplicate_candidate_count >= 20:
@@ -138,6 +152,15 @@ def build_report(
         hard_failures.append("governance_gate_allowed_assistant_only")
     if gate_allowed & set(stale_revived):
         hard_failures.append("governance_gate_allowed_stale_item")
+    gate_allowed_non_direct_user = sorted(
+        str(item.get("id", ""))
+        for item in items
+        if str(item.get("id", "")) in gate_allowed
+        and set(str(value) for value in item.get("utterance_intents", []))
+        and "direct_user_intent" not in set(str(value) for value in item.get("utterance_intents", []))
+    )
+    if gate_allowed_non_direct_user:
+        hard_failures.append("governance_gate_allowed_quoted_or_external_user_material")
 
     report = {
         "compact_characters": len(compact_text),
@@ -155,6 +178,8 @@ def build_report(
         "stale_revived_items": stale_revived,
         "assistant_only_core_items": assistant_only_core,
         "candidate_core_items": candidate_core,
+        "non_direct_user_core_items": non_direct_user_core,
+        "gate_allowed_non_direct_user_items": gate_allowed_non_direct_user,
         "evidence_mix": evidence_mix(items),
         "warnings": warnings,
         "hard_failures": hard_failures,
