@@ -24,6 +24,10 @@
     "expected": "read_source"
   },
   {
+    "text": "每次任务前必须先读 WORLD_STATE.md。",
+    "expected": "read_source"
+  },
+  {
     "text": "Accepted structured cognition should render into WORLD_STATE.",
     "expected": "render"
   },

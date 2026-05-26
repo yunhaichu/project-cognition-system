@@ -158,10 +158,34 @@ def compact_structured_rows(items: list[dict[str, Any]], max_items: int = 3) -> 
         if key in seen:
             continue
         seen.add(key)
-        rows.append(f"- [{modality}/{predicate}] {obj}")
+        rows.append(f"- {compact_structured_sentence(modality, predicate, obj)}")
         if len(rows) >= max_items:
             break
     return rows
+
+
+def compact_structured_sentence(modality: str, predicate: str, obj: str) -> str:
+    if predicate == "render" and re.search(r"(读|读取|先读|read).{0,20}(WORLD_STATE|世界状态|项目世界观)", obj, flags=re.I):
+        predicate = "read_source"
+    if modality == "must_not":
+        labels = {
+            "call_llm": "禁止调用模型",
+            "enter_core_memory": "禁止进入核心记忆",
+            "inject_context": "禁止注入上下文",
+            "update_world_state": "禁止更新核心状态",
+            "override": "禁止覆盖",
+        }
+        return f"{labels.get(predicate, '禁止')}：{obj}"
+    labels = {
+        "read_source": "必须读取",
+        "require_review": "必须治理准入",
+        "score_evidence": "必须评分",
+        "resolve_conflict": "必须处理冲突",
+        "store_log": "必须记录日志",
+        "update_world_state": "必须更新核心状态",
+        "render": "必须渲染",
+    }
+    return f"{labels.get(predicate, '必须')}：{obj}"
 
 
 def render_world_state(items: list[dict[str, Any]]) -> str:

@@ -512,7 +512,31 @@ def check_compact_structured_summary(project_root: Path) -> dict[str, bool]:
         "compact_structured_rendered": "top priority accepted project rules" in compact
         and "low confidence rule" not in compact
         and "global profile rule" not in compact,
+        "compact_structured_uses_natural_labels": "[must/render]" not in compact
+        and "必须渲染：top priority accepted project rules" in compact,
         "compact_stays_small": len(compact) <= 1600,
+    }
+
+
+def check_compact_legacy_render_read_label(project_root: Path) -> dict[str, bool]:
+    legacy = item(
+        "legacy_render_read_world_state",
+        claim="Legacy extracted predicate says render but the object asks to read WORLD_STATE.",
+        source_type="proposed_update",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="render",
+        object_value="每次任务前必须先读 WORLD_STATE.md",
+        confidence=98,
+    )
+    set_items(project_root, [legacy])
+    result = run_script(project_root, "build_world_state.py")
+    compact = (project_root / ".project_cognition" / "WORLD_STATE_COMPACT.md").read_text(encoding="utf-8")
+    return {
+        "compact_legacy_render_read_corrected": result.get("compact_structured_count") == 1
+        and "必须读取：每次任务前必须先读 WORLD_STATE.md" in compact
+        and "必须渲染：每次任务前必须先读 WORLD_STATE.md" not in compact,
     }
 
 
@@ -1952,6 +1976,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("resolve_supersedes_loser", check_resolve_supersedes_loser),
         ("world_state_structured_layer", check_world_state_structured_layer),
         ("compact_structured_summary", check_compact_structured_summary),
+        ("compact_legacy_render_read_label", check_compact_legacy_render_read_label),
         ("negative_compact_filters", check_negative_compact_filters),
         ("negative_memory_filters", check_negative_memory_filters),
         ("deferred_conflict_blocks", check_deferred_conflict_blocks),

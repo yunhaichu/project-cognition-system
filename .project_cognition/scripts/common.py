@@ -383,6 +383,8 @@ def normalize_predicate(value: str | None, claim: str = "") -> str:
         return "store_log"
     if re.search(r"(创建|create|保留|生成).{0,20}(agents\.md|文件|目录)|agents\.md", lowered):
         return "create"
+    if re.search(r"(读|读取|先读|read).{0,20}(world_state|世界状态|项目世界观)", lowered):
+        return "read_source"
     if re.search(r"(world_state|世界状态|核心状态).{0,20}(更新|生成|重建|修改|进入|写入)|update world", lowered):
         return "update_world_state"
     if re.search(r"(渲染|render|compact|world_state)", lowered):
@@ -393,7 +395,7 @@ def normalize_predicate(value: str | None, claim: str = "") -> str:
         return "resolve_conflict"
     if re.search(r"(覆盖|推翻|supersede|override)", lowered):
         return "override"
-    if re.search(r"(原文|回查|读取|定位|source)", lowered):
+    if re.search(r"(原文|回查|读取|定位|source|read)", lowered):
         return "read_source"
     if re.search(r"(test|pytest|测试).{0,20}(pass|passed|通过|失败|failed)", lowered):
         return "test_passed"

@@ -143,6 +143,7 @@ integrations/   # Codex / Hermes 集成
 ```
 
 `evals/golden/` 固化了 intent classification、predicate 规范化和 object 规范化的回归样例，用来保护长文直接指令、创作类提示和粘贴评价材料不会走错治理路径。
+compact state 渲染也会把结构化 predicate 转成自然语言标签，避免把内部治理标签直接暴露给 Agent。
 
 ### 重要边界
 
@@ -313,6 +314,7 @@ integrations/   # Codex / Hermes integrations
 ```
 
 Intent classification, predicate normalization, and object normalization are covered by golden fixtures under `evals/golden/`. These fixtures protect long direct instructions, creative-writing prompts, and quoted evaluation text from drifting into the wrong governance path.
+Compact state rendering also turns structured predicates into natural labels instead of exposing internal governance tags directly to the agent.
 
 ### Boundaries
 
