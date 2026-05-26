@@ -82,9 +82,12 @@ python .project_cognition/scripts/codex_pre_hook.py \
 校验状态文件并运行回归测试：
 
 ```bash
+python .project_cognition/scripts/upgrade_state.py --repair
 python .project_cognition/scripts/validate_state.py
 python evals/run_minimal_eval.py
 ```
+
+`upgrade_state.py --repair` 会把旧版本项目认知文件升级到当前格式，保留原始证据，只修正元数据并归档可重建索引。post hook 会自动执行这一步。
 
 按需查找证据：
 
@@ -114,6 +117,7 @@ python .project_cognition/scripts/bootstrap_existing_project.py \
 ```text
 session transcript
   -> raw evidence
+  -> versioned state upgrade
   -> cognition candidates
   -> scoring
   -> conflict detection
@@ -253,9 +257,12 @@ python .project_cognition/scripts/codex_pre_hook.py \
 Validate state files and run regression tests:
 
 ```bash
+python .project_cognition/scripts/upgrade_state.py --repair
 python .project_cognition/scripts/validate_state.py
 python evals/run_minimal_eval.py
 ```
+
+`upgrade_state.py --repair` upgrades older project cognition files to the current format. It preserves raw evidence, fixes metadata, and archives rebuildable indexes. The post hook runs it automatically.
 
 Look up evidence on demand:
 
@@ -285,6 +292,7 @@ python .project_cognition/scripts/bootstrap_existing_project.py \
 ```text
 session transcript
   -> raw evidence
+  -> versioned state upgrade
   -> cognition candidates
   -> scoring
   -> conflict detection

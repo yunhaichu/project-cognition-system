@@ -191,20 +191,21 @@ def score_item(
     non_direct_intents = utterance_intents - {"direct_user_intent"}
     if has_user_evidence and non_direct_intents and "direct_user_intent" not in utterance_intents and item.get("status") != "accepted":
         confidence = min(84, confidence)
+    non_direct_user_material = bool(has_user_evidence and utterance_intents and "direct_user_intent" not in utterance_intents)
 
     item["confidence"] = confidence
     item["evidence_types"] = sorted(evidence_types)
     if utterance_intents:
         item["utterance_intents"] = sorted(utterance_intents)
-    accepted_for_world_state = item.get("status") == "accepted" and (has_user_evidence or has_tool_evidence)
+    accepted_for_world_state = item.get("status") == "accepted" and (has_user_evidence or has_tool_evidence) and not non_direct_user_material
     requires_governance_gate = bool(
         (has_tool_evidence and not has_user_evidence and item.get("status") != "accepted")
+        or non_direct_user_material
         or (confidence >= int(weights["min_world_confidence"]) and not accepted_for_world_state)
     )
     item["requires_governance_gate_for_world_state"] = requires_governance_gate
     # Backward-compatible field name for older state files and external tooling.
     item["requires_review_for_world_state"] = requires_governance_gate
-    item["score_signals"] = sorted(set(matched_signals))
     item["include_in_world_state"] = (
         accepted_for_world_state
         and confidence >= 90
@@ -212,8 +213,12 @@ def score_item(
     )
     if confidence < 50:
         item["include_in_world_state"] = False
+    if non_direct_user_material:
+        item["include_in_world_state"] = False
+        matched_signals.append("non_direct_user_material_blocked")
     if item.get("status") not in {"accepted", "rejected"}:
         item["status"] = "candidate"
+    item["score_signals"] = sorted(set(matched_signals))
     return item
 
 

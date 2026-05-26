@@ -54,6 +54,7 @@ def run_post_hook(session_jsonl: str | None, session_id: str, source: str, skip_
         require_success(steps[-1])
 
     for script_name in [
+        "upgrade_state.py",
         "update_scoring_weights.py",
         "extract_candidates.py",
         "score_candidates.py",
@@ -66,7 +67,8 @@ def run_post_hook(session_jsonl: str | None, session_id: str, source: str, skip_
         "index_segments.py",
         "drift_report.py",
     ]:
-        steps.append(run_step(script_name, []))
+        args = ["--repair"] if script_name == "upgrade_state.py" else []
+        steps.append(run_step(script_name, args))
         require_success(steps[-1])
 
     summary = {
@@ -118,6 +120,7 @@ def main() -> None:
         "local_only": summary["local_only"],
         "step_count": len(summary["steps"]),
         "step_scripts": [step["script"] for step in summary["steps"]],
+        "state_upgrade": step_by_script.get("upgrade_state.py", {}).get("stdout"),
         "world_state": step_by_script.get("build_world_state.py", {}).get("stdout"),
         "user_profile": step_by_script.get("build_user_profile.py", {}).get("stdout"),
         "conflicts": step_by_script.get("detect_conflicts.py", {}).get("stdout"),

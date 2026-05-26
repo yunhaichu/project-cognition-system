@@ -97,6 +97,7 @@ def reset_state(project_root: Path) -> None:
         cognition_root / "distilled" / "candidate_clusters.json",
         cognition_root / "distilled" / "conflict_clusters.json",
         cognition_root / "distilled" / "governance_gate.json",
+        cognition_root / "distilled" / "state_version.json",
     ]:
         if path.exists():
             path.unlink()
@@ -1259,6 +1260,100 @@ def check_legacy_state_migration(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_versioned_state_upgrade(project_root: Path) -> dict[str, bool]:
+    cognition_root = project_root / ".project_cognition"
+    direct_utterance = {
+        "id": "utt_upgrade_direct",
+        "session_id": "state_upgrade",
+        "timestamp": "2026-05-26T00:00:00Z",
+        "text": "每次任务前必须先读 WORLD_STATE.md。",
+        "source": "eval",
+        "importance_score": 95,
+        "signals": {
+            "long_form": False,
+            "repeated": False,
+            "explicit_preference": True,
+            "explicit_rejection": False,
+            "strong_emphasis": True,
+        },
+        "linked_topics": ["world_state"],
+        "notes": "",
+    }
+    quoted_utterance = {
+        "id": "utt_upgrade_quoted",
+        "session_id": "state_upgrade",
+        "timestamp": "2026-05-26T00:01:00Z",
+        "text": "看到了最新提交，进度判断：个人本地 MVP：91%。这只是外部评价材料。",
+        "source": "eval",
+        "importance_score": 80,
+        "signals": {
+            "long_form": False,
+            "repeated": False,
+            "explicit_preference": False,
+            "explicit_rejection": False,
+            "strong_emphasis": False,
+        },
+        "linked_topics": [],
+        "notes": "",
+    }
+    read_legacy = item(
+        "cog_upgrade_read",
+        claim="每次任务前必须先读 WORLD_STATE.md。",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="agent",
+        predicate="render",
+        object_value="WORLD_STATE.md",
+        status="accepted",
+        confidence=98,
+    )
+    read_legacy["evidence"] = ["utt_upgrade_direct"]
+    read_legacy["structured"]["source_refs"] = ["utt_upgrade_direct"]
+    quoted_core = item(
+        "cog_upgrade_quoted",
+        claim="外部评价材料不应直接成为核心状态。",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="external_commentary",
+        predicate="enter_core_memory",
+        object_value="core memory",
+        status="accepted",
+        confidence=98,
+    )
+    quoted_core["evidence"] = ["utt_upgrade_quoted"]
+    quoted_core["structured"]["source_refs"] = ["utt_upgrade_quoted"]
+    quoted_core["include_in_world_state"] = True
+    write_jsonl(cognition_root / "raw" / "user_utterances.jsonl", [direct_utterance, quoted_utterance])
+    write_json(cognition_root / "distilled" / "confidence_table.json", {"items": [read_legacy, quoted_core]})
+    write_json(cognition_root / "index" / "manifest.json", {"old": True})
+    write_jsonl(cognition_root / "index" / "segments.jsonl", [{"source_id": "utt_upgrade_direct", "preview": "old"}])
+
+    report = run_script(project_root, "upgrade_state.py")
+    repaired = run_script(project_root, "upgrade_state.py", ["--repair"])
+    upgraded_utterances = read_jsonl(cognition_root / "raw" / "user_utterances.jsonl")
+    upgraded_items = read_json(cognition_root / "distilled" / "confidence_table.json").get("items", [])
+    by_id = {row.get("id"): row for row in upgraded_items}
+    validation = run_script(project_root, "validate_state.py")
+    state_version = read_json(cognition_root / "distilled" / "state_version.json")
+    return {
+        "upgrade_reports_pending_changes": report.get("needs_upgrade") is True
+        and report.get("changes", {}).get("user_utterance_intents_backfilled") == 2,
+        "upgrade_backfills_utterance_intent": {row.get("utterance_intent") for row in upgraded_utterances}
+        == {"direct_user_intent", "quoted_evaluation"},
+        "upgrade_normalizes_legacy_read_predicate": by_id["cog_upgrade_read"].get("structured", {}).get("predicate") == "read_source",
+        "upgrade_blocks_non_direct_user_core": by_id["cog_upgrade_quoted"].get("include_in_world_state") is False
+        and by_id["cog_upgrade_quoted"].get("utterance_intents") == ["quoted_evaluation"],
+        "upgrade_archives_rebuildable_index": bool(repaired.get("index_archive", {}).get("archived"))
+        and not (cognition_root / "index" / "segments.jsonl").exists(),
+        "upgrade_writes_state_version": state_version.get("state_schema_version")
+        and state_version.get("local_only") is True
+        and state_version.get("llm_used") is False,
+        "upgrade_validates_state": validation.get("ok") is True,
+    }
+
+
 def check_conflict_cluster_integrity(project_root: Path) -> dict[str, bool]:
     a = item(
         "cluster_user_a",
@@ -1857,7 +1952,14 @@ def check_post_hook_sidecar_pipeline(project_root: Path) -> dict[str, bool]:
     return {
         "post_hook_runs_sidecars": all(
             script in scripts
-            for script in ["cluster_candidates.py", "cluster_conflicts.py", "auto_governance_gate.py", "index_segments.py", "drift_report.py"]
+            for script in [
+                "upgrade_state.py",
+                "cluster_candidates.py",
+                "cluster_conflicts.py",
+                "auto_governance_gate.py",
+                "index_segments.py",
+                "drift_report.py",
+            ]
         ),
         "post_hook_reports_sidecars": bool(result.get("conflict_clusters"))
         and bool(result.get("candidate_clusters"))
@@ -1990,6 +2092,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("index_cache", check_index_cache),
         ("hook_runtime_hygiene", check_hook_runtime_hygiene),
         ("legacy_state_migration", check_legacy_state_migration),
+        ("versioned_state_upgrade", check_versioned_state_upgrade),
         ("conflict_clustering", check_conflict_cluster_integrity),
         ("conflict_cluster_review", check_conflict_cluster_review),
         ("candidate_clustering", check_candidate_clustering),

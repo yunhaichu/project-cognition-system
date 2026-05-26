@@ -152,6 +152,8 @@ Real transcript dogfood summaries may be committed only after redaction. The rep
 python .project_cognition/scripts/validate_state.py
 ```
 
+`upgrade_state.py --repair` is the versioned compatibility step for older project folders. It preserves raw evidence, backfills current metadata, blocks non-direct quoted user material from core state, normalizes legacy structured fields, archives rebuildable indexes, and records `.project_cognition/distilled/state_version.json`.
+
 It also checks cross-file references: conflict sides must point to cognition items, proposal conflict ids must exist, source refs must resolve to user/agent/tool evidence, supersedes links must point to cognition items, and tool evidence must point back to its tool log.
 
 GitHub Actions runs Python compilation, schema validation, governance evals, and whitespace checks. These checks only use sanitized fixtures and do not scan real history directories. The workflow is committed at `.github/workflows/ci.yml`, with a copy at `docs/ci/github-actions.yml`.

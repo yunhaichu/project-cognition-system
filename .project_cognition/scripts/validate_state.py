@@ -300,6 +300,7 @@ def validate_state(root: Path) -> dict[str, Any]:
         ("raw/decisions.jsonl", "decision.schema.json", "jsonl"),
         ("raw/conflicts.jsonl", "conflict.schema.json", "jsonl"),
         ("proposals/proposed_updates.jsonl", "proposed_update.schema.json", "jsonl"),
+        ("distilled/state_version.json", "state_version.schema.json", "json"),
     ]
     summary: dict[str, Any] = {
         "target_root": str(root),

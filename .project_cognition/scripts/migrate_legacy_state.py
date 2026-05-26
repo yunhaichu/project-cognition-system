@@ -153,6 +153,7 @@ def analyze(target_root: Path, preserve_reviewed: bool = True) -> dict[str, Any]
         "tool_evidence.schema.json",
         "user_utterance.schema.json",
         "world_state.schema.json",
+        "state_version.schema.json",
     ]:
         if not (schema_dir / name).exists():
             missing_schemas.append(name)

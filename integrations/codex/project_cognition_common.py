@@ -52,6 +52,7 @@ RUNTIME_SCRIPT_NAMES = [
     "index_segments.py",
     "lookup_evidence.py",
     "drift_report.py",
+    "upgrade_state.py",
     "migrate_legacy_state.py",
     "review_conflict_cluster.py",
     "codex_pre_hook.py",
@@ -72,6 +73,7 @@ RUNTIME_SCHEMA_NAMES = [
     "tool_evidence.schema.json",
     "user_utterance.schema.json",
     "world_state.schema.json",
+    "state_version.schema.json",
 ]
 
 
@@ -358,6 +360,10 @@ def summarize_post_hook_stdout(stdout: str) -> dict[str, Any]:
     summary["world_state"] = summarize_mapping(
         data.get("world_state"),
         ["included_count", "structured_count", "compact_structured_count", "characters", "compact_characters"],
+    )
+    summary["state_upgrade"] = summarize_mapping(
+        data.get("state_upgrade"),
+        ["needs_upgrade", "from_version", "to_version", "repair", "local_only", "llm_used"],
     )
     summary["user_profile"] = summarize_mapping(
         data.get("user_profile"),

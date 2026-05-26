@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateVersion",
+  "type": "object",
+  "required": ["state_schema_version", "upgraded_at", "upgrade_rules", "local_only", "llm_used"],
+  "properties": {
+    "state_schema_version": {"type": "string"},
+    "upgraded_at": {"type": "string"},
+    "from_version": {"type": "string"},
+    "upgrade_rules": {"type": "array", "items": {"type": "string"}},
+    "local_only": {"type": "boolean"},
+    "llm_used": {"type": "boolean"}
+  }
+}

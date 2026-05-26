@@ -73,6 +73,7 @@ _RUNTIME_SCRIPT_NAMES = [
     "index_segments.py",
     "lookup_evidence.py",
     "drift_report.py",
+    "upgrade_state.py",
     "migrate_legacy_state.py",
     "review_conflict_cluster.py",
     "codex_pre_hook.py",
@@ -93,6 +94,7 @@ _RUNTIME_SCHEMA_NAMES = [
     "tool_evidence.schema.json",
     "user_utterance.schema.json",
     "world_state.schema.json",
+    "state_version.schema.json",
 ]
 
 _CONTEXT_MINIMALISM_NOTICE = (
@@ -400,6 +402,10 @@ def _summarize_post_hook_stdout(stdout: str) -> dict[str, Any]:
     summary["world_state"] = _summarize_mapping(
         data.get("world_state"),
         ["included_count", "structured_count", "compact_structured_count", "characters", "compact_characters"],
+    )
+    summary["state_upgrade"] = _summarize_mapping(
+        data.get("state_upgrade"),
+        ["needs_upgrade", "from_version", "to_version", "repair", "local_only", "llm_used"],
     )
     summary["user_profile"] = _summarize_mapping(data.get("user_profile"), ["changed", "generated_candidates", "min_confidence"])
     summary["conflicts"] = _summarize_mapping(data.get("conflicts"), ["new_conflicts", "total_conflicts"])

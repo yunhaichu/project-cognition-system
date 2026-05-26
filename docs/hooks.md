@@ -38,12 +38,13 @@ Default timeouts are intentionally separate:
 - Hermes `post_llm_call`: `90s`, configurable with `HERMES_PROJECT_COGNITION_POST_TIMEOUT`.
 - Hermes gateway optional post hook: `90s`, configurable with `HERMES_PROJECT_COGNITION_GATEWAY_POST_TIMEOUT`.
 
-The post hook is local-only by default. It ingests the current transcript, writes assistant output to logs, normalizes tool calls into `raw/tool_evidence.jsonl`, runs rule-based extraction/scoring/conflict detection, clusters unresolved conflicts, rebuilds compact state, refreshes the read-only evidence index, and runs drift-budget checks. It does not call an LLM or bulk-inject raw history.
+The post hook is local-only by default. It ingests the current transcript, writes assistant output to logs, normalizes tool calls into `raw/tool_evidence.jsonl`, runs a versioned state upgrade for older project files, runs rule-based extraction/scoring/conflict detection, clusters unresolved conflicts, rebuilds compact state, refreshes the read-only evidence index, and runs drift-budget checks. It does not call an LLM or bulk-inject raw history.
 
 Current post-hook pipeline:
 
 ```text
 ingest_session
+  -> upgrade_state
   -> update_scoring_weights
   -> extract_candidates
   -> score_candidates
