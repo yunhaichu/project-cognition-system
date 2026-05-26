@@ -87,10 +87,18 @@ def reset_state(project_root: Path) -> None:
         cognition_root / "logs" / "tool_calls",
         cognition_root / "logs" / "outputs",
         cognition_root / "logs" / "file_changes",
+        cognition_root / "index",
     ]:
         directory.mkdir(parents=True, exist_ok=True)
         for child in directory.glob("*.json*"):
             child.unlink()
+    for path in [
+        cognition_root / "distilled" / "candidate_clusters.json",
+        cognition_root / "distilled" / "conflict_clusters.json",
+        cognition_root / "distilled" / "governance_gate.json",
+    ]:
+        if path.exists():
+            path.unlink()
     write_json(cognition_root / "distilled" / "confidence_table.json", {"items": []})
     scoring_feedback = cognition_root / "distilled" / "scoring_feedback.jsonl"
     if scoring_feedback.exists():
@@ -188,6 +196,8 @@ def run_minimal_pipeline(project_root: Path) -> dict[str, Any]:
         "score": run_script(project_root, "score_candidates.py"),
         "conflicts": run_script(project_root, "detect_conflicts.py"),
         "candidate_clusters": run_script(project_root, "cluster_candidates.py"),
+        "conflict_clusters": run_script(project_root, "cluster_conflicts.py"),
+        "governance_gate": run_script(project_root, "auto_governance_gate.py"),
         "world_state": run_script(project_root, "build_world_state.py"),
         "unresolved": run_script(project_root, "resolve_conflict.py", ["--list-unresolved"]),
     }
@@ -199,6 +209,8 @@ def run_cognition_pipeline(project_root: Path) -> dict[str, Any]:
         "score": run_script(project_root, "score_candidates.py"),
         "conflicts": run_script(project_root, "detect_conflicts.py"),
         "candidate_clusters": run_script(project_root, "cluster_candidates.py"),
+        "conflict_clusters": run_script(project_root, "cluster_conflicts.py"),
+        "governance_gate": run_script(project_root, "auto_governance_gate.py"),
         "world_state": run_script(project_root, "build_world_state.py"),
     }
 
@@ -282,11 +294,15 @@ def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[st
         ),
         "object_keys_canonicalized": bool(items) and all(row.get("structured", {}).get("object_key") for row in items),
         "candidates_have_structured_fields": bool(items) and all("structured" in row for row in items),
-        "unreviewed_candidates_do_not_enter_world_state": all(
+        "candidates_without_gate_do_not_enter_world_state": all(
             not row.get("include_in_world_state") for row in items if row.get("status") == "candidate"
         ),
-        "tool_only_candidate_requires_review_for_world_state": bool(tool_items)
-        and all(row.get("requires_review_for_world_state") and not row.get("include_in_world_state") for row in tool_items),
+        "tool_only_candidate_requires_governance_gate": bool(tool_items)
+        and all(row.get("requires_governance_gate_for_world_state") and not row.get("include_in_world_state") for row in tool_items),
+        "governance_gate_created": steps["governance_gate"]["item_count"] == len(items)
+        and (cognition_root / "distilled" / "governance_gate.json").exists(),
+        "governance_gate_controls_world_state": sorted(steps["world_state"]["included_cognition_ids"])
+        == sorted(steps["governance_gate"]["allowed_item_ids"]),
         "compact_state_under_1600_chars": compact_chars <= 1600,
     }
 
@@ -820,7 +836,7 @@ def check_e2e_multi_transcript(project_root: Path) -> dict[str, bool]:
     ]
     return {
         "e2e_transcripts_ingested": len(read_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl")) >= 4,
-        "e2e_reviewed_rule_enters_compact": final_result.get("compact_structured_count", 0) >= 1
+        "e2e_governed_rule_enters_compact": final_result.get("compact_structured_count", 0) >= 1
         and "assistant final output" in compact.lower(),
         "e2e_stale_rule_superseded": final_items[stale_rule["id"]].get("status") == "superseded"
         and not final_items[stale_rule["id"]].get("include_in_world_state"),
@@ -1009,7 +1025,7 @@ def check_evidence_lookup(project_root: Path) -> dict[str, bool]:
         "lookup_returns_source_refs": index_result.get("segment_count", 0) >= 2
         and bool(query.get("matches"))
         and all(row.get("source_id") and row.get("source_type") and row.get("matched_text") for row in query.get("matches", [])),
-        "retrieval_does_not_bypass_review": world_before == world_after and table_before == table_after,
+        "retrieval_does_not_bypass_governance": world_before == world_after and table_before == table_after,
         "retrieval_index_does_not_split_records": bool(index_rows)
         and all(row.get("record_level") is True and row.get("chunked") is False and row.get("segment_index") == 0 for row in index_rows)
         and len({row.get("source_id") for row in index_rows}) == len(index_rows),
@@ -1043,7 +1059,7 @@ def check_vector_lookup(project_root: Path) -> dict[str, bool]:
         "vector_source_id_exact_lookup_pass": exact.get("matches", [{}])[0].get("source_id") == utterance["id"],
         "vector_lookup_returns_source_refs": bool(query.get("matches"))
         and all(row.get("source_id") and row.get("source_type") and row.get("path") for row in query.get("matches", [])),
-        "vector_lookup_does_not_bypass_review": world_before == world_after and table_before == table_after,
+        "vector_lookup_does_not_bypass_governance": world_before == world_after and table_before == table_after,
         "vector_preview_not_authoritative": bool(query.get("matches"))
         and all(
             row.get("matched_text_is_preview") is True
@@ -1439,6 +1455,136 @@ def check_candidate_clustering(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_auto_governance_gate(project_root: Path) -> dict[str, bool]:
+    user_anchor = item(
+        "gate_user_anchor",
+        claim="Assistant final output must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=99,
+        status="candidate",
+    )
+    user_anchor["evidence_types"] = ["user_utterance"]
+    user_anchor["score_signals"] = ["user_explicit_rejection", "user_strong_emphasis"]
+
+    user_duplicate = item(
+        "gate_user_duplicate",
+        claim="Agent output cannot become a core fact.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="agent output",
+        confidence=98,
+        status="candidate",
+    )
+    user_duplicate["evidence_types"] = ["user_utterance"]
+    user_duplicate["score_signals"] = ["user_explicit_rejection"]
+
+    agent_duplicate = item(
+        "gate_agent_duplicate",
+        claim="Assistant answer should not enter core memory.",
+        source_type="agent_interpretation",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant answer",
+        confidence=74,
+        status="candidate",
+    )
+    agent_duplicate["evidence"] = ["interp_gate_agent"]
+    agent_duplicate["structured"]["source_refs"] = ["interp_gate_agent"]
+    agent_duplicate["evidence_types"] = ["agent_interpretation"]
+    agent_duplicate["score_signals"] = ["agent_interpretation"]
+
+    low_confidence = item(
+        "gate_low_confidence",
+        claim="Low confidence candidate must stay out.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="render",
+        object_value="low confidence rule",
+        confidence=80,
+        status="candidate",
+    )
+    low_confidence["evidence_types"] = ["user_utterance"]
+
+    conflict_a = item(
+        "gate_conflict_a",
+        claim="WORLD_STATE must update automatically.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="world_state",
+        predicate="update_world_state",
+        object_value="world state",
+        confidence=99,
+        status="candidate",
+    )
+    conflict_a["evidence_types"] = ["user_utterance"]
+    conflict_b = item(
+        "gate_conflict_b",
+        claim="WORLD_STATE must not update automatically.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="world_state",
+        predicate="update_world_state",
+        object_value="world state",
+        confidence=99,
+        status="candidate",
+    )
+    conflict_b["evidence_types"] = ["user_utterance"]
+    conflict = {
+        "id": "gate_conflict",
+        "timestamp": "2026-05-26T00:00:00Z",
+        "type": "user_vs_user",
+        "item_a": "gate_conflict_a",
+        "item_b": "gate_conflict_b",
+        "description": "Eval unresolved conflict.",
+        "severity": 90,
+        "resolution": "unresolved",
+        "chosen_side": "",
+        "reason": "",
+    }
+
+    set_items(project_root, [user_anchor, user_duplicate, agent_duplicate, low_confidence, conflict_a, conflict_b])
+    write_jsonl(project_root / ".project_cognition" / "raw" / "conflicts.jsonl", [conflict])
+    world_before = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_before = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    raw_before = (project_root / ".project_cognition" / "raw" / "conflicts.jsonl").read_text(encoding="utf-8")
+    run_script(project_root, "cluster_candidates.py")
+    gate = run_script(project_root, "auto_governance_gate.py")
+    build = run_script(project_root, "build_world_state.py")
+    world_after = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_after = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    raw_after = (project_root / ".project_cognition" / "raw" / "conflicts.jsonl").read_text(encoding="utf-8")
+    allowed = set(gate.get("allowed_item_ids", []))
+    decisions = {row.get("id"): row for row in gate.get("decisions", [])}
+    return {
+        "gate_allows_user_anchor": "gate_user_anchor" in allowed,
+        "gate_blocks_duplicate_candidates": "gate_user_duplicate" not in allowed
+        and "blocked_as_duplicate_candidate" in decisions["gate_user_duplicate"].get("reasons", []),
+        "gate_blocks_agent_only_duplicate": "gate_agent_duplicate" not in allowed
+        and "agent_only_evidence" in decisions["gate_agent_duplicate"].get("reasons", []),
+        "gate_blocks_low_confidence": "gate_low_confidence" not in allowed
+        and any(reason.startswith("confidence_below_") for reason in decisions["gate_low_confidence"].get("reasons", [])),
+        "gate_blocks_unresolved_conflict": not ({"gate_conflict_a", "gate_conflict_b"} & allowed),
+        "gate_does_not_mutate_evidence_or_table": table_before == table_after and raw_before == raw_after,
+        "build_world_state_uses_gate": build.get("included_cognition_ids") == ["gate_user_anchor"]
+        and "assistant final output" in world_after.lower()
+        and world_before != world_after,
+    }
+
+
 def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
     utterance = {
         "id": "utt_compound",
@@ -1514,7 +1660,7 @@ def check_drift_report(project_root: Path) -> dict[str, bool]:
 
     candidate_core = item(
         "candidate_core",
-        claim="Unreviewed candidate should not become core.",
+        claim="Ungoverned candidate should not become core.",
         source_type="user_utterance",
         modality="must",
         scope="project",
@@ -1534,11 +1680,15 @@ def check_drift_report(project_root: Path) -> dict[str, bool]:
         and "stale_rule_revived" in stale_report.get("hard_failures", []),
         "assistant_only_still_never_core": assistant_status.returncode != 0
         and "assistant_only_entered_core" in assistant_report.get("hard_failures", []),
-        "unreviewed_candidate_still_never_core": candidate_status.returncode != 0
-        and "unreviewed_candidate_entered_core" in candidate_report.get("hard_failures", []),
+        "ungoverned_candidate_still_never_core": candidate_status.returncode != 0
+        and "ungoverned_candidate_entered_core" in candidate_report.get("hard_failures", []),
         "candidate_cluster_metrics_reported": ok_report.get("candidate_cluster_file_exists") is True
         and "candidate_cluster_count" in ok_report
         and "duplicate_candidate_ratio" in ok_report,
+        "governance_gate_metrics_reported": ok_report.get("governance_gate_file_exists") is True
+        and "governance_allowed_count" in ok_report
+        and "governance_blocked_count" in ok_report
+        and "governance_blocked_reason_counts" in ok_report,
     }
 
 
@@ -1553,16 +1703,18 @@ def check_post_hook_sidecar_pipeline(project_root: Path) -> dict[str, bool]:
     return {
         "post_hook_runs_sidecars": all(
             script in scripts
-            for script in ["cluster_candidates.py", "cluster_conflicts.py", "index_segments.py", "drift_report.py"]
+            for script in ["cluster_candidates.py", "cluster_conflicts.py", "auto_governance_gate.py", "index_segments.py", "drift_report.py"]
         ),
         "post_hook_reports_sidecars": bool(result.get("conflict_clusters"))
         and bool(result.get("candidate_clusters"))
+        and bool(result.get("governance_gate"))
         and bool(result.get("evidence_index"))
         and bool(result.get("drift"))
         and result.get("drift", {}).get("ok") is True,
         "post_hook_writes_sidecar_outputs": (cognition_root / "index" / "segments.jsonl").exists()
         and (cognition_root / "distilled" / "candidate_clusters.json").exists()
-        and (cognition_root / "distilled" / "conflict_clusters.json").exists(),
+        and (cognition_root / "distilled" / "conflict_clusters.json").exists()
+        and (cognition_root / "distilled" / "governance_gate.json").exists(),
     }
 
 
@@ -1686,6 +1838,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("conflict_clustering", check_conflict_cluster_integrity),
         ("conflict_cluster_review", check_conflict_cluster_review),
         ("candidate_clustering", check_candidate_clustering),
+        ("auto_governance_gate", check_auto_governance_gate),
         ("compound_sentence_extraction", check_compound_sentence_extraction),
         ("drift_report", check_drift_report),
         ("post_hook_sidecar_pipeline", check_post_hook_sidecar_pipeline),

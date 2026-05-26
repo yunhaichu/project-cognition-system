@@ -50,6 +50,7 @@ ingest_session
   -> detect_conflicts
   -> cluster_candidates
   -> cluster_conflicts
+  -> auto_governance_gate
   -> build_world_state
   -> build_user_profile
   -> index_segments

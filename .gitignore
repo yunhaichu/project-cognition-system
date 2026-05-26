@@ -13,6 +13,7 @@ venv/
 .project_cognition/distilled/scoring_feedback.jsonl
 .project_cognition/distilled/conflict_clusters.json
 .project_cognition/distilled/candidate_clusters.json
+.project_cognition/distilled/governance_gate.json
 .project_cognition/index/
 
 # Keep empty placeholders.

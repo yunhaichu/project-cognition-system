@@ -25,8 +25,14 @@ jobs:
       - name: Build read-only evidence index
         run: python .project_cognition/scripts/index_segments.py
 
+      - name: Cluster duplicate candidates
+        run: python .project_cognition/scripts/cluster_candidates.py
+
       - name: Cluster unresolved conflicts
         run: python .project_cognition/scripts/cluster_conflicts.py
+
+      - name: Build governance gate
+        run: python .project_cognition/scripts/auto_governance_gate.py
 
       - name: Check drift budgets
         run: python .project_cognition/scripts/drift_report.py

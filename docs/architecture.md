@@ -17,7 +17,7 @@ Tool calls are split into audit logs and formal evidence:
 - `logs/tool_calls/<session>.jsonl` stores the full tool call output for audit.
 - `raw/tool_evidence.jsonl` stores a normalized record with `evidence_kind`, `deterministic`, `outcome`, `source_log_id`, and a bounded `content_summary`.
 
-Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_result`, `web_result`, and `command_output`. The scoring layer indexes `tool_evidence` directly. Deterministic test, git, and filesystem results score above agent interpretation. Web results and generic command output are weaker. Tool-only candidates remain below automatic `WORLD_STATE.md` inclusion unless accepted through the governance gate.
+Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_result`, `web_result`, and `command_output`. The scoring layer indexes `tool_evidence` directly. Deterministic test, git, and filesystem results score above agent interpretation. Web results and generic command output are weaker. Tool-only candidates remain outside `WORLD_STATE.md` unless the automated governance gate can verify deterministic evidence strength and conflict safety.
 
 The retrieval sidecar is record-level. It may score or vectorize whole user utterance, tool evidence, or tool-call records, but it must not split those records into authoritative memory chunks. Lookup results can show short previews for triage, yet the stable evidence remains the full raw record addressed by `source_id` and `path`.
 
@@ -58,6 +58,20 @@ Conflict detection compares structured fields before falling back to keyword top
 
 Candidate clustering is automatic governance denoise only. It does not merge evidence, change `confidence_table.json`, or update `WORLD_STATE.md`. Mixed-authority clusters keep user evidence anchored separately from agent-only candidates and emit `blocked_from_core_suggestions` for weaker duplicates.
 
+## Governance Gate
+
+`auto_governance_gate.py` is the default admission layer for `WORLD_STATE.md` and `WORLD_STATE_COMPACT.md`.
+
+The gate reads the confidence table, unresolved conflicts, and candidate clusters, then writes `distilled/governance_gate.json`. It does not edit raw evidence, proposals, conflicts, or `confidence_table.json`.
+
+The gate allows only candidates that pass local evidence rules:
+
+- high-confidence user-evidence candidates
+- accepted bootstrap or explicit update records
+- deterministic high-confidence tool-evidence candidates
+
+It blocks stale or rejected items, unresolved high-severity conflict sides, candidate-cluster duplicates, assistant-output claims, agent-only claims, missing-evidence claims, and low-confidence claims. This is automatic rule-based governance, not default human review. Manual or human judgment commands remain available only when the user explicitly asks for them.
+
 ## Conflict Lifecycle
 
 `detect_conflicts.py` records potential contradictions and blocks unresolved high-severity items. `resolve_conflict.py` adds an explicit resolution path:
@@ -66,7 +80,7 @@ Candidate clustering is automatic governance denoise only. It does not merge evi
 - `defer`: keep both sides out of `WORLD_STATE.md` until more evidence exists.
 - `mark-resolved`: record that a conflict was resolved externally.
 
-After resolution, rerun `score_candidates.py` and `build_world_state.py`.
+After explicit resolution, rerun `score_candidates.py`, `auto_governance_gate.py`, and `build_world_state.py`.
 
 Resolved conflicts include an `audit_summary` with chosen side, loser, supersedes, and blocked status for both sides. This keeps resolution inspectable without reading the full confidence table. Human judgment is not part of the default path; it is only used when explicitly requested.
 
@@ -79,7 +93,7 @@ Resolved conflicts include an `audit_summary` with chosen side, loser, supersede
 
 The compact file remains doctrine-heavy by design. Full state can expose accepted structured cognition without pushing raw evidence or logs into the prompt.
 
-`WORLD_STATE_COMPACT.md` may include a tiny high-priority structured cognition summary. Eligibility is deliberately strict: `accepted`, confidence at least 95, `scope=project`, and `modality=must/must_not`, capped at 3 rows.
+`WORLD_STATE_COMPACT.md` may include a tiny high-priority structured cognition summary. Eligibility is deliberately strict: admitted by the governance gate, confidence at least 95, `scope=project`, and `modality=must/must_not`, capped at 3 rows.
 
 ## Why Not Just Memory?
 
@@ -99,7 +113,7 @@ Hooks should inject `WORLD_STATE_COMPACT.md` plus a compact user profile. Raw ev
 
 ## Eval
 
-`evals/run_minimal_eval.py` runs the pipeline in a temporary project copy and checks the core governance invariants: user evidence goes to raw, assistant output stays in logs, tool output becomes formal evidence, candidates are structured, tool-only candidates require explicit governance acceptance, and compact state remains small.
+`evals/run_minimal_eval.py` runs the pipeline in a temporary project copy and checks the core governance invariants: user evidence goes to raw, assistant output stays in logs, tool output becomes formal evidence, candidates are structured, tool-only candidates must pass the governance gate, and compact state remains small.
 
 It also checks five drift scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the loser, and accepted structured cognition rendering into `WORLD_STATE.md`.
 

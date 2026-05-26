@@ -1,8 +1,8 @@
 # WORLD_STATE_COMPACT.md
 
-Project: low-drift, auditable project cognition for AI agents; not RAG, not memory.md, not history stuffing.
-Goal: avoid drift while keeping default context tiny.
-Evidence: user utterances and real tool results outrank agent interpretations; agent final output is a log.
-Context: do not load raw/logs/history by default; look up exact sources only when needed.
-Flow: local scripts rebuild world state through extraction, scoring, conflict detection, proposals, and review.
-
+项目：低漂移、可追溯、可审计的项目认知系统；不是 RAG、memory.md、聊天摘要或历史堆叠。
+目标：避免认知漂移，同时极致降低 token。默认只用当前命令、全局协议、紧凑用户画像和本 compact 状态。
+硬约束：用户原话/真实工具结果最高权重；Agent 输出只进日志；低置信、无证据、未解决冲突不得进核心状态。
+上下文：不默认使用线程历史、raw、logs；需要证据时按 ID/关键词定位具体原文读取。
+流程：Codex 在 SessionStart 注入、Stop 整理；Hermes 在 pre/post hook 低成本运行；默认不调用 LLM。
+偏航检查：是否违背用户原话、扩大范围、把总结当事实、忽略真实代码/工具结果，或需要回查原文。

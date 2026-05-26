@@ -75,7 +75,7 @@ python .project_cognition/scripts/codex_pre_hook.py --format markdown
 python .project_cognition/scripts/codex_post_hook.py --session-jsonl path/to/session.jsonl --session-id SESSION_ID
 ```
 
-`WORLD_STATE.md` is generated from raw evidence, scored candidates, conflict checks, and accepted updates. Do not treat assistant final answers as core memory.
+`WORLD_STATE.md` is generated from raw evidence, scored candidates, conflict checks, candidate denoise, and automated governance gates. Do not treat assistant final answers as core memory.
 """
 
 
@@ -245,7 +245,9 @@ def rebuild_world_state(target_root: Path) -> list[dict[str, Any]]:
         "extract_candidates.py",
         "score_candidates.py",
         "detect_conflicts.py",
+        "cluster_candidates.py",
         "cluster_conflicts.py",
+        "auto_governance_gate.py",
         "build_world_state.py",
         "build_user_profile.py",
         "index_segments.py",

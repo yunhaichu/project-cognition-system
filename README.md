@@ -47,6 +47,9 @@ python .project_cognition/scripts/ingest_session.py \
 python .project_cognition/scripts/extract_candidates.py
 python .project_cognition/scripts/score_candidates.py
 python .project_cognition/scripts/detect_conflicts.py
+python .project_cognition/scripts/cluster_candidates.py
+python .project_cognition/scripts/cluster_conflicts.py
+python .project_cognition/scripts/auto_governance_gate.py
 python .project_cognition/scripts/build_world_state.py
 ```
 
@@ -114,11 +117,11 @@ session transcript
   -> scoring
   -> conflict detection
   -> candidate/conflict clustering
+  -> automated governance gate
   -> WORLD_STATE.md / WORLD_STATE_COMPACT.md
-  -> governance-gated updates
 ```
 
-每轮任务开始时，hook 读取 compact state。每轮任务结束时，post hook 可以导入本轮 transcript，自动聚类重复候选和冲突，并重建项目状态。
+每轮任务开始时，hook 读取 compact state。每轮任务结束时，post hook 可以导入本轮 transcript，自动聚类重复候选和冲突，运行自动治理准入，并重建项目状态。
 
 ### 目录结构
 
@@ -211,6 +214,9 @@ python .project_cognition/scripts/ingest_session.py \
 python .project_cognition/scripts/extract_candidates.py
 python .project_cognition/scripts/score_candidates.py
 python .project_cognition/scripts/detect_conflicts.py
+python .project_cognition/scripts/cluster_candidates.py
+python .project_cognition/scripts/cluster_conflicts.py
+python .project_cognition/scripts/auto_governance_gate.py
 python .project_cognition/scripts/build_world_state.py
 ```
 
@@ -278,11 +284,11 @@ session transcript
   -> scoring
   -> conflict detection
   -> candidate/conflict clustering
+  -> automated governance gate
   -> WORLD_STATE.md / WORLD_STATE_COMPACT.md
-  -> governance-gated updates
 ```
 
-At task start, hooks read compact state. At task end, the post hook can ingest the current transcript, automatically cluster duplicate candidates and conflicts, and rebuild project state.
+At task start, hooks read compact state. At task end, the post hook can ingest the current transcript, automatically cluster duplicate candidates and conflicts, run the governance gate, and rebuild project state.
 
 ### Directory Layout
 

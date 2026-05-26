@@ -5,7 +5,7 @@ import argparse
 import json
 from typing import Any
 
-from common import CANDIDATE_CLUSTERS, CONFLICT_CLUSTERS, CONFLICTS, WORLD_STATE_COMPACT, confidence_table_items, read_json, read_jsonl
+from common import CANDIDATE_CLUSTERS, CONFLICT_CLUSTERS, CONFLICTS, GOVERNANCE_GATE, WORLD_STATE_COMPACT, confidence_table_items, read_json, read_jsonl
 from validate_state import validate_state
 
 
@@ -71,6 +71,25 @@ def load_candidate_cluster_metrics() -> tuple[int, int, float, bool]:
     )
 
 
+def load_governance_gate_metrics() -> dict[str, Any]:
+    if not GOVERNANCE_GATE.exists():
+        return {
+            "governance_gate_file_exists": False,
+            "governance_allowed_count": 0,
+            "governance_blocked_count": 0,
+            "governance_blocked_reason_counts": {},
+            "governance_allowed_item_ids": [],
+        }
+    data = read_json(GOVERNANCE_GATE, {})
+    return {
+        "governance_gate_file_exists": True,
+        "governance_allowed_count": int(data.get("allowed_count", 0)),
+        "governance_blocked_count": int(data.get("blocked_count", 0)),
+        "governance_blocked_reason_counts": data.get("blocked_reason_counts", {}),
+        "governance_allowed_item_ids": list(data.get("allowed_item_ids", [])),
+    }
+
+
 def build_report(
     *,
     max_compact_chars: int,
@@ -87,6 +106,7 @@ def build_report(
     ]
     cluster_count, cluster_file_exists = load_cluster_count()
     candidate_cluster_count, duplicate_candidate_count, duplicate_candidate_ratio, candidate_cluster_file_exists = load_candidate_cluster_metrics()
+    gate_metrics = load_governance_gate_metrics()
     stale_revived = stale_revived_items(items)
     assistant_only_core = assistant_only_core_items(items)
     candidate_core = candidate_core_items(items)
@@ -102,13 +122,18 @@ def build_report(
     if assistant_only_core:
         hard_failures.append("assistant_only_entered_core")
     if candidate_core:
-        hard_failures.append("unreviewed_candidate_entered_core")
+        hard_failures.append("ungoverned_candidate_entered_core")
     if len(high_unresolved) > max_high_severity_conflicts:
         warnings.append("conflict_budget_exceeded")
     if duplicate_candidate_ratio >= 0.5 and duplicate_candidate_count >= 20:
         warnings.append("candidate_duplicate_noise_high")
+    gate_allowed = set(str(value) for value in gate_metrics.get("governance_allowed_item_ids", []))
+    if gate_allowed & set(assistant_only_core):
+        hard_failures.append("governance_gate_allowed_assistant_only")
+    if gate_allowed & set(stale_revived):
+        hard_failures.append("governance_gate_allowed_stale_item")
 
-    return {
+    report = {
         "compact_characters": len(compact_text),
         "max_compact_chars": max_compact_chars,
         "unresolved_high_severity_conflicts": len(high_unresolved),
@@ -119,6 +144,7 @@ def build_report(
         "candidate_cluster_file_exists": candidate_cluster_file_exists,
         "duplicate_candidate_count": duplicate_candidate_count,
         "duplicate_candidate_ratio": duplicate_candidate_ratio,
+        **{key: value for key, value in gate_metrics.items() if key != "governance_allowed_item_ids"},
         "dangling_reference_errors": len(validation.get("errors", [])),
         "stale_revived_items": stale_revived,
         "assistant_only_core_items": assistant_only_core,
@@ -128,6 +154,7 @@ def build_report(
         "hard_failures": hard_failures,
         "ok": not hard_failures,
     }
+    return report
 
 
 def main() -> None:

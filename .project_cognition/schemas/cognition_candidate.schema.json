@@ -18,6 +18,7 @@
     "score_signals": {"type": "array", "items": {"type": "string"}},
     "evidence_types": {"type": "array", "items": {"type": "string"}},
     "requires_review_for_world_state": {"type": "boolean"},
+    "requires_governance_gate_for_world_state": {"type": "boolean"},
     "structured": {
       "type": "object",
       "properties": {

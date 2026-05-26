@@ -55,6 +55,7 @@ VECTOR_INDEX = INDEX_DIR / "vector_records.jsonl"
 VECTOR_MANIFEST = INDEX_DIR / "vector_manifest.json"
 CONFLICT_CLUSTERS = COGNITION_ROOT / "distilled" / "conflict_clusters.json"
 CANDIDATE_CLUSTERS = COGNITION_ROOT / "distilled" / "candidate_clusters.json"
+GOVERNANCE_GATE = COGNITION_ROOT / "distilled" / "governance_gate.json"
 
 
 PREFERENCE_RE = re.compile(r"(希望|偏好|倾向|优先|权重最高|核心|目标|应当|应该|必须|需要|要求)")

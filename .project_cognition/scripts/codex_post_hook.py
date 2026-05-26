@@ -60,6 +60,7 @@ def run_post_hook(session_jsonl: str | None, session_id: str, source: str, skip_
         "detect_conflicts.py",
         "cluster_candidates.py",
         "cluster_conflicts.py",
+        "auto_governance_gate.py",
         "build_world_state.py",
         "build_user_profile.py",
         "index_segments.py",
@@ -122,6 +123,7 @@ def main() -> None:
         "conflicts": step_by_script.get("detect_conflicts.py", {}).get("stdout"),
         "candidate_clusters": step_by_script.get("cluster_candidates.py", {}).get("stdout"),
         "conflict_clusters": step_by_script.get("cluster_conflicts.py", {}).get("stdout"),
+        "governance_gate": step_by_script.get("auto_governance_gate.py", {}).get("stdout"),
         "evidence_index": step_by_script.get("index_segments.py", {}).get("stdout"),
         "drift": step_by_script.get("drift_report.py", {}).get("stdout"),
     }

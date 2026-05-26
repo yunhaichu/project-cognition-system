@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from common import CONFLICTS, DECISIONS, WORLD_STATE, WORLD_STATE_COMPACT, confidence_table_items, normalize_text, now_iso, read_jsonl, write_text
+from common import CONFLICTS, DECISIONS, GOVERNANCE_GATE, WORLD_STATE, WORLD_STATE_COMPACT, confidence_table_items, normalize_text, now_iso, read_json, read_jsonl, write_text
 
 
 SECTION_ORDER = [
@@ -28,16 +28,27 @@ def blocked_item_ids() -> set[str]:
     return blocked
 
 
+def gate_allowed_ids() -> set[str] | None:
+    if not GOVERNANCE_GATE.exists():
+        return None
+    data = read_json(GOVERNANCE_GATE, {})
+    return {str(item_id) for item_id in data.get("allowed_item_ids", [])}
+
+
 def eligible_items() -> list[dict[str, Any]]:
     blocked = blocked_item_ids()
+    allowed_by_gate = gate_allowed_ids()
     items = []
     for item in confidence_table_items():
         if item.get("status") in {"rejected", "superseded"}:
             continue
-        if item.get("status") != "accepted" and item.get("source_type") not in {"manual_initialization", "bootstrap_rule"}:
+        if allowed_by_gate is not None and item.get("id") not in allowed_by_gate:
             continue
-        if not item.get("include_in_world_state"):
+        if allowed_by_gate is None and item.get("status") != "accepted" and item.get("source_type") not in {"manual_initialization", "bootstrap_rule"}:
             continue
+        if allowed_by_gate is None:
+            if not item.get("include_in_world_state"):
+                continue
         if item.get("id") in blocked:
             continue
         if int(item.get("confidence", 0)) < 90:
@@ -109,8 +120,6 @@ def structured_cognition_rows(items: list[dict[str, Any]], max_items: int = 6) -
     rows: list[str] = []
     seen: set[str] = set()
     for item in items:
-        if item.get("status") != "accepted" and item.get("source_type") not in {"manual_initialization", "bootstrap_rule"}:
-            continue
         structured = item.get("structured") or {}
         obj = clean_claim(str(structured.get("object") or item.get("claim", "")))
         if not obj:
@@ -133,8 +142,6 @@ def compact_structured_rows(items: list[dict[str, Any]], max_items: int = 3) -> 
     seen: set[str] = set()
     for item in items:
         structured = item.get("structured") or {}
-        if item.get("status") != "accepted":
-            continue
         if int(item.get("confidence", 0)) < 95:
             continue
         if str(structured.get("scope") or "project") != "project":
@@ -213,7 +220,7 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
 执行前自查：是否违背用户原话；是否把 AI 总结当事实；是否扩大范围；是否忽略真实代码/工具结果；是否需要按源回查原文；是否把低置信推断写成高置信结论。
 
 ## 9. 更新规则
-完整状态写入本文件；hook 只注入 `WORLD_STATE_COMPACT.md`。新认知先进入 `proposals/` 或候选层，经本地规则、评分、冲突检测和显式接受命令后，再由 `build_world_state.py` 生成。
+完整状态写入本文件；hook 只注入 `WORLD_STATE_COMPACT.md`。新认知先进入候选层，经本地规则、评分、冲突检测、候选降噪和自动治理准入后，再由 `build_world_state.py` 生成。显式人工判断只在用户主动要求时使用。
 """
 
 
