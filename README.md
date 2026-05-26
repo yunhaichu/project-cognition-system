@@ -142,6 +142,8 @@ evals/          # 回归测试 fixture
 integrations/   # Codex / Hermes 集成
 ```
 
+`evals/golden/` 固化了 intent classification、predicate 规范化和 object 规范化的回归样例，用来保护长文直接指令、创作类提示和粘贴评价材料不会走错治理路径。
+
 ### 重要边界
 
 用户画像不放在项目目录内：
@@ -309,6 +311,8 @@ examples/       # minimal examples
 evals/          # regression fixtures
 integrations/   # Codex / Hermes integrations
 ```
+
+Intent classification, predicate normalization, and object normalization are covered by golden fixtures under `evals/golden/`. These fixtures protect long direct instructions, creative-writing prompts, and quoted evaluation text from drifting into the wrong governance path.
 
 ### Boundaries
 

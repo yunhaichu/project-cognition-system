@@ -1,0 +1,37 @@
+[
+  {
+    "name": "direct_short_chinese_command",
+    "expected": "direct_user_intent",
+    "text": "按照文档内容和我的要求，继续下一步。"
+  },
+  {
+    "name": "direct_english_plan_command",
+    "expected": "direct_user_intent",
+    "text": "PLEASE IMPLEMENT THIS PLAN: keep retrieval record-level, do not call an LLM by default, and update the governance gate."
+  },
+  {
+    "name": "mixed_request_with_quoted_evaluation",
+    "expected": "mixed_request_with_quote",
+    "text": "你看一下gpt thinking模型的评价：\n看到了最新提交，提交信息是 Add governance admission budgets。\n进度判断：84%。\n结论：这轮更新有效。"
+  },
+  {
+    "name": "quoted_evaluation_without_direct_request",
+    "expected": "quoted_evaluation",
+    "text": "看到了最新提交，提交信息是 Add governance admission budgets。第一，自动治理准入更稳。第二，短板仍然是规则抽取。进度判断：84%。"
+  },
+  {
+    "name": "external_long_commentary",
+    "expected": "external_commentary",
+    "text": "这是一段很长的背景资料，不是用户本轮指令。\n材料第一段只是描述项目历史。\n材料第二段只是描述过去讨论。\n材料第三段只是描述某个方案。\n材料第四段只是描述旧版本行为。\n材料第五段只是描述参考内容。\n材料第六段只是描述外部材料。\n材料第七段只是描述旁路信息。\n材料第八段只是描述附录。"
+  },
+  {
+    "name": "creative_long_direct_instruction",
+    "expected": "direct_user_intent",
+    "text": "我需要你根据下面的设定继续写小说，但不要总结，不要改设定，不要加入现代口吻。故事发生在一座沿海城邦，主角已经失去旧身份，只能通过一封未寄出的信确认过去。请保持克制、冷静、细节密集的叙事风格，重点写人物行动和环境压力，不要解释主题。第一章要从清晨码头开始，第二章转入旧书库，第三章出现追踪者，但不要让冲突过早爆发。"
+  },
+  {
+    "name": "creative_excerpt_without_instruction",
+    "expected": "external_commentary",
+    "text": "海风从窗缝里挤进来，把桌面上的纸页吹得沙沙作响。\n他没有立刻伸手去按住那封信。\n街上的钟声敲过三下。\n远处有人推着货车经过石板路。\n那只旧皮箱还放在门边。\n他知道自己不能久留。\n可是信封上的名字让他停了下来。\n雨水从屋檐落下，像一串没有结尾的句子。"
+  }
+]

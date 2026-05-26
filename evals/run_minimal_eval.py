@@ -20,6 +20,7 @@ LONG_DOGFOOD_FILE = REPO_ROOT / "evals" / "cases" / "dogfood_long_development.js
 GOLDEN_FILE = REPO_ROOT / "evals" / "golden" / "minimal_invariants.json"
 PREDICATE_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "predicate_fixtures.json"
 OBJECT_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "object_fixtures.json"
+UTTERANCE_INTENT_FIXTURES_FILE = REPO_ROOT / "evals" / "golden" / "utterance_intent_fixtures.json"
 MULTI_TRANSCRIPT_FILES = [
     REPO_ROOT / "evals" / "cases" / "multi_transcript" / "session1_establish_rule.jsonl",
     REPO_ROOT / "evals" / "cases" / "multi_transcript" / "session2_conflicting_rule.jsonl",
@@ -295,6 +296,9 @@ def check_minimal_pipeline(project_root: Path, steps: dict[str, Any]) -> dict[st
         ),
         "object_fixtures_pass": all(
             canonical_object(row["text"]) == row["expected"] for row in read_json(OBJECT_FIXTURES_FILE)
+        ),
+        "utterance_intent_fixtures_pass": all(
+            classify_user_utterance_intent(row["text"]) == row["expected"] for row in read_json(UTTERANCE_INTENT_FIXTURES_FILE)
         ),
         "object_keys_canonicalized": bool(items) and all(row.get("structured", {}).get("object_key") for row in items),
         "candidates_have_structured_fields": bool(items) and all("structured" in row for row in items),
@@ -1688,6 +1692,29 @@ def check_quoted_evaluation_filter(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_creative_long_direct_intent(project_root: Path) -> dict[str, bool]:
+    fixture = next(row for row in read_json(UTTERANCE_INTENT_FIXTURES_FILE) if row["name"] == "creative_long_direct_instruction")
+    session = project_root / "creative_long_direct_session.jsonl"
+    write_jsonl(
+        session,
+        [{"role": "user", "content": fixture["text"], "timestamp": "2026-05-26T04:45:00Z"}],
+    )
+    ingest = run_script(
+        project_root,
+        "ingest_session.py",
+        ["--input", str(session), "--session-id", "creative_long_direct", "--source", "eval"],
+    )
+    extract = run_script(project_root, "extract_candidates.py")
+    utterance = read_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl")[0]
+    items = read_json(project_root / ".project_cognition" / "distilled" / "confidence_table.json").get("items", [])
+    return {
+        "creative_long_direct_classified": ingest["counts"]["user"] == 1
+        and utterance.get("utterance_intent") == "direct_user_intent",
+        "creative_long_direct_not_treated_as_external": classify_user_utterance_intent(fixture["text"]) == "direct_user_intent",
+        "creative_long_direct_can_extract_candidates": extract.get("candidate_count", 0) >= 1 and bool(items),
+    }
+
+
 def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
     utterance = {
         "id": "utt_compound",
@@ -1944,6 +1971,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("auto_governance_gate", check_auto_governance_gate),
         ("governance_gate_budget", check_governance_gate_budget),
         ("quoted_evaluation_filter", check_quoted_evaluation_filter),
+        ("creative_long_direct_intent", check_creative_long_direct_intent),
         ("compound_sentence_extraction", check_compound_sentence_extraction),
         ("drift_report", check_drift_report),
         ("post_hook_sidecar_pipeline", check_post_hook_sidecar_pipeline),

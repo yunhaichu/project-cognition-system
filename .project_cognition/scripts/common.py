@@ -63,7 +63,8 @@ REJECTION_RE = re.compile(r"(不要|不得|不能|禁止|不应该|不可|不是
 EMPHASIS_RE = re.compile(r"(必须|绝不|最高|最低|核心|最重要|强烈|永远|只能|不得)")
 LONG_TERM_RE = re.compile(r"(长期|以后|每次|永远|必须遵守|不可违背|稳定|反复)")
 DIRECT_USER_INTENT_RE = re.compile(
-    r"(我需要|我要|我的要求|我的目标|我希望|目标是|重点不是|请|你需要|你直接|按照.+继续|继续下一步|做吧|修复|实现|修改|不得|不要|必须|只能)"
+    r"(我需要|我要|我的要求|我的目标|我希望|目标是|重点不是|请|你需要|你直接|你看一下|按照.+继续|继续下一步|做吧|修复|实现|修改|不得|不要|必须|只能|"
+    r"\bplease\b|\bimplement\b|\bfix\b|\bcontinue\b|\bmy goal\b|\bi need\b)"
 )
 QUOTED_EVALUATION_RE = re.compile(
     r"(模型的评价|gpt thinking|hermes agent|相关对话|以下是|他说的|你看一下.*评价|"
