@@ -113,11 +113,12 @@ session transcript
   -> cognition candidates
   -> scoring
   -> conflict detection
+  -> candidate/conflict clustering
   -> WORLD_STATE.md / WORLD_STATE_COMPACT.md
-  -> proposed updates / review
+  -> governance-gated updates
 ```
 
-每轮任务开始时，hook 读取 compact state。每轮任务结束时，post hook 可以导入本轮 transcript 并重建项目状态。
+每轮任务开始时，hook 读取 compact state。每轮任务结束时，post hook 可以导入本轮 transcript，自动聚类重复候选和冲突，并重建项目状态。
 
 ### 目录结构
 
@@ -126,8 +127,8 @@ session transcript
   WORLD_STATE.md
   WORLD_STATE_COMPACT.md
   raw/          # 用户原话、工具证据、冲突、决策
-  distilled/    # 候选认知和置信度表
-  proposals/    # 待审更新
+  distilled/    # 候选认知、置信度表、自动聚类结果
+  proposals/    # 显式更新建议
   logs/         # assistant 输出、工具调用等审计日志
   scripts/      # 本地管线脚本
   schemas/      # JSON/JSONL schema
@@ -276,11 +277,12 @@ session transcript
   -> cognition candidates
   -> scoring
   -> conflict detection
+  -> candidate/conflict clustering
   -> WORLD_STATE.md / WORLD_STATE_COMPACT.md
-  -> proposed updates / review
+  -> governance-gated updates
 ```
 
-At task start, hooks read compact state. At task end, the post hook can ingest the current transcript and rebuild project state.
+At task start, hooks read compact state. At task end, the post hook can ingest the current transcript, automatically cluster duplicate candidates and conflicts, and rebuild project state.
 
 ### Directory Layout
 

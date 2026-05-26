@@ -187,6 +187,7 @@ def run_minimal_pipeline(project_root: Path) -> dict[str, Any]:
         "extract": run_script(project_root, "extract_candidates.py"),
         "score": run_script(project_root, "score_candidates.py"),
         "conflicts": run_script(project_root, "detect_conflicts.py"),
+        "candidate_clusters": run_script(project_root, "cluster_candidates.py"),
         "world_state": run_script(project_root, "build_world_state.py"),
         "unresolved": run_script(project_root, "resolve_conflict.py", ["--list-unresolved"]),
     }
@@ -197,6 +198,7 @@ def run_cognition_pipeline(project_root: Path) -> dict[str, Any]:
         "extract": run_script(project_root, "extract_candidates.py"),
         "score": run_script(project_root, "score_candidates.py"),
         "conflicts": run_script(project_root, "detect_conflicts.py"),
+        "candidate_clusters": run_script(project_root, "cluster_candidates.py"),
         "world_state": run_script(project_root, "build_world_state.py"),
     }
 
@@ -1366,6 +1368,77 @@ def check_conflict_cluster_review(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_candidate_clustering(project_root: Path) -> dict[str, bool]:
+    user_anchor = item(
+        "cand_user_anchor",
+        claim="Assistant final output must not enter core memory.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=99,
+    )
+    user_reworded = item(
+        "cand_user_reworded",
+        claim="Agent output is not allowed to become a core fact.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="agent output",
+        confidence=96,
+    )
+    agent_duplicate = item(
+        "cand_agent_duplicate",
+        claim="Assistant answer should not enter core memory.",
+        source_type="agent_interpretation",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant answer",
+        confidence=74,
+        status="candidate",
+    )
+    global_scope = item(
+        "cand_user_global_scope",
+        claim="Global user profile may mention assistant output logging.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="user_global",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=95,
+    )
+    set_items(project_root, [user_anchor, user_reworded, agent_duplicate, global_scope])
+    world_before = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_before = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    result = run_script(project_root, "cluster_candidates.py")
+    world_after = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_after = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    clusters = result.get("clusters", [])
+    cluster = clusters[0] if clusters else {}
+    candidate_ids = set(cluster.get("candidate_ids", []))
+    duplicate_ids = set(cluster.get("duplicate_candidate_ids", []))
+    return {
+        "candidate_cluster_integrity": result.get("cluster_count") == 1
+        and cluster.get("member_count") == 3
+        and cluster.get("representative_id") == "cand_user_anchor"
+        and cluster.get("merge_mode") == "none_no_state_mutation"
+        and cluster.get("updates_world_state") is False,
+        "same_claim_different_words_clustered": {"cand_user_anchor", "cand_user_reworded", "cand_agent_duplicate"} <= candidate_ids,
+        "different_scope_not_merged": "cand_user_global_scope" not in candidate_ids,
+        "user_evidence_not_merged_into_agent_only": cluster.get("governance_action") == "prefer_user_anchor_block_weaker_duplicates"
+        and "cand_agent_duplicate" in duplicate_ids
+        and cluster.get("representative_id") == "cand_user_anchor",
+        "candidate_cluster_does_not_update_state": world_before == world_after and table_before == table_after,
+    }
+
+
 def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
     utterance = {
         "id": "utt_compound",
@@ -1398,6 +1471,7 @@ def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
 
 def check_drift_report(project_root: Path) -> dict[str, bool]:
     run_minimal_pipeline(project_root)
+    run_script(project_root, "cluster_candidates.py")
     run_script(project_root, "cluster_conflicts.py")
     ok_report = run_script(project_root, "drift_report.py")
 
@@ -1462,6 +1536,9 @@ def check_drift_report(project_root: Path) -> dict[str, bool]:
         and "assistant_only_entered_core" in assistant_report.get("hard_failures", []),
         "unreviewed_candidate_still_never_core": candidate_status.returncode != 0
         and "unreviewed_candidate_entered_core" in candidate_report.get("hard_failures", []),
+        "candidate_cluster_metrics_reported": ok_report.get("candidate_cluster_file_exists") is True
+        and "candidate_cluster_count" in ok_report
+        and "duplicate_candidate_ratio" in ok_report,
     }
 
 
@@ -1476,13 +1553,15 @@ def check_post_hook_sidecar_pipeline(project_root: Path) -> dict[str, bool]:
     return {
         "post_hook_runs_sidecars": all(
             script in scripts
-            for script in ["cluster_conflicts.py", "index_segments.py", "drift_report.py"]
+            for script in ["cluster_candidates.py", "cluster_conflicts.py", "index_segments.py", "drift_report.py"]
         ),
         "post_hook_reports_sidecars": bool(result.get("conflict_clusters"))
+        and bool(result.get("candidate_clusters"))
         and bool(result.get("evidence_index"))
         and bool(result.get("drift"))
         and result.get("drift", {}).get("ok") is True,
         "post_hook_writes_sidecar_outputs": (cognition_root / "index" / "segments.jsonl").exists()
+        and (cognition_root / "distilled" / "candidate_clusters.json").exists()
         and (cognition_root / "distilled" / "conflict_clusters.json").exists(),
     }
 
@@ -1606,6 +1685,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("legacy_state_migration", check_legacy_state_migration),
         ("conflict_clustering", check_conflict_cluster_integrity),
         ("conflict_cluster_review", check_conflict_cluster_review),
+        ("candidate_clustering", check_candidate_clustering),
         ("compound_sentence_extraction", check_compound_sentence_extraction),
         ("drift_report", check_drift_report),
         ("post_hook_sidecar_pipeline", check_post_hook_sidecar_pipeline),

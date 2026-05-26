@@ -52,6 +52,12 @@ Object fixtures live in `evals/golden/object_fixtures.json`, so object canonical
 
 Conflict detection compares structured fields before falling back to keyword topics. Opposite modality for the same `subject / predicate / object / scope` is a conflict. Different scopes are kept separate, so a project-level prohibition does not automatically conflict with a global-user-level allowance.
 
+## Candidate Denoise
+
+`cluster_candidates.py` groups active candidates by `scope / subject / predicate / object_key / modality` and records duplicate or near-duplicate candidate clusters in `distilled/candidate_clusters.json`. It chooses a deterministic representative using evidence authority, accepted status, confidence, and evidence count.
+
+Candidate clustering is automatic governance denoise only. It does not merge evidence, change `confidence_table.json`, or update `WORLD_STATE.md`. Mixed-authority clusters keep user evidence anchored separately from agent-only candidates and emit `blocked_from_core_suggestions` for weaker duplicates.
+
 ## Conflict Lifecycle
 
 `detect_conflicts.py` records potential contradictions and blocks unresolved high-severity items. `resolve_conflict.py` adds an explicit resolution path:

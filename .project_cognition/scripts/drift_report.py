@@ -5,7 +5,7 @@ import argparse
 import json
 from typing import Any
 
-from common import CONFLICT_CLUSTERS, CONFLICTS, WORLD_STATE_COMPACT, confidence_table_items, read_json, read_jsonl
+from common import CANDIDATE_CLUSTERS, CONFLICT_CLUSTERS, CONFLICTS, WORLD_STATE_COMPACT, confidence_table_items, read_json, read_jsonl
 from validate_state import validate_state
 
 
@@ -59,6 +59,18 @@ def load_cluster_count() -> tuple[int, bool]:
     return int(data.get("cluster_count", 0)), True
 
 
+def load_candidate_cluster_metrics() -> tuple[int, int, float, bool]:
+    if not CANDIDATE_CLUSTERS.exists():
+        return 0, 0, 0.0, False
+    data = read_json(CANDIDATE_CLUSTERS, {})
+    return (
+        int(data.get("cluster_count", 0)),
+        int(data.get("duplicate_candidate_count", 0)),
+        float(data.get("duplicate_ratio", 0.0)),
+        True,
+    )
+
+
 def build_report(
     *,
     max_compact_chars: int,
@@ -74,6 +86,7 @@ def build_report(
         if conflict.get("resolution") in {"unresolved", "deferred"} and int(conflict.get("severity", 0)) >= 75
     ]
     cluster_count, cluster_file_exists = load_cluster_count()
+    candidate_cluster_count, duplicate_candidate_count, duplicate_candidate_ratio, candidate_cluster_file_exists = load_candidate_cluster_metrics()
     stale_revived = stale_revived_items(items)
     assistant_only_core = assistant_only_core_items(items)
     candidate_core = candidate_core_items(items)
@@ -92,6 +105,8 @@ def build_report(
         hard_failures.append("unreviewed_candidate_entered_core")
     if len(high_unresolved) > max_high_severity_conflicts:
         warnings.append("conflict_budget_exceeded")
+    if duplicate_candidate_ratio >= 0.5 and duplicate_candidate_count >= 20:
+        warnings.append("candidate_duplicate_noise_high")
 
     return {
         "compact_characters": len(compact_text),
@@ -100,6 +115,10 @@ def build_report(
         "max_high_severity_conflicts": max_high_severity_conflicts,
         "conflict_cluster_count": cluster_count,
         "conflict_cluster_file_exists": cluster_file_exists,
+        "candidate_cluster_count": candidate_cluster_count,
+        "candidate_cluster_file_exists": candidate_cluster_file_exists,
+        "duplicate_candidate_count": duplicate_candidate_count,
+        "duplicate_candidate_ratio": duplicate_candidate_ratio,
         "dangling_reference_errors": len(validation.get("errors", [])),
         "stale_revived_items": stale_revived,
         "assistant_only_core_items": assistant_only_core,

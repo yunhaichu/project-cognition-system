@@ -48,6 +48,7 @@ ingest_session
   -> extract_candidates
   -> score_candidates
   -> detect_conflicts
+  -> cluster_candidates
   -> cluster_conflicts
   -> build_world_state
   -> build_user_profile
