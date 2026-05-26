@@ -55,7 +55,7 @@ ingest_session
   -> drift_report
 ```
 
-`index_segments.py` is a record-level lookup index despite the historical name: it does not split user utterances or tool evidence into authoritative chunks. Future vector retrieval must follow the same rule: embed/rank full records and return source ids, not chunk-derived facts. `lookup_evidence.py` returns source ids plus short previews only; the preview is not a fact source, and any claim must still be grounded by reading the full source record by `source_id`. `lookup_evidence.py` and `review_conflict_cluster.py` are explicit, on-demand tools. They are not injected into context and do not update `WORLD_STATE` unless the normal review/update pipeline is used.
+`index_segments.py` is a record-level lookup index despite the historical name: it does not split user utterances or tool evidence into authoritative chunks. `build_vector_index.py` follows the same rule: vector retrieval may embed/rank full records and return source ids, not chunk-derived facts. `lookup_evidence.py` and `vector_lookup.py` return source ids plus short previews only; the preview is not a fact source, and any claim must still be grounded by reading the full source record by `source_id`. `lookup_evidence.py`, `vector_lookup.py`, and `review_conflict_cluster.py` are explicit, on-demand tools. They are not injected into context and do not update `WORLD_STATE` unless the normal review/update pipeline is used.
 
 Recommended profile paths:
 

@@ -51,6 +51,8 @@ PROPOSALS_MD = COGNITION_ROOT / "proposals" / "proposed_updates.md"
 INDEX_DIR = COGNITION_ROOT / "index"
 SEGMENT_INDEX = INDEX_DIR / "segments.jsonl"
 INDEX_MANIFEST = INDEX_DIR / "manifest.json"
+VECTOR_INDEX = INDEX_DIR / "vector_records.jsonl"
+VECTOR_MANIFEST = INDEX_DIR / "vector_manifest.json"
 CONFLICT_CLUSTERS = COGNITION_ROOT / "distilled" / "conflict_clusters.json"
 
 

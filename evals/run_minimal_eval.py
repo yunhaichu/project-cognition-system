@@ -1016,6 +1016,42 @@ def check_evidence_lookup(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_vector_lookup(project_root: Path) -> dict[str, bool]:
+    run_script(
+        project_root,
+        "ingest_session.py",
+        ["--input", str(CASE_FILE), "--session-id", "vector_lookup_eval", "--source", "eval"],
+    )
+    world_before = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_before = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    run_script(project_root, "index_segments.py")
+    vector_result = run_script(project_root, "build_vector_index.py")
+    vector_rows = read_jsonl(project_root / ".project_cognition" / "index" / "vector_records.jsonl")
+    utterance = read_jsonl(project_root / ".project_cognition" / "raw" / "user_utterances.jsonl")[0]
+    exact = run_script(project_root, "vector_lookup.py", ["--source-id", utterance["id"], "--limit", "3"])
+    query = run_script(project_root, "vector_lookup.py", ["--query", "assistant 输出 核心事实", "--limit", "3"])
+    world_after = (project_root / ".project_cognition" / "WORLD_STATE.md").read_text(encoding="utf-8")
+    table_after = (project_root / ".project_cognition" / "distilled" / "confidence_table.json").read_text(encoding="utf-8")
+    return {
+        "vector_index_builds": vector_result.get("record_count", 0) >= 2
+        and vector_result.get("indexing_mode") == "record_level_no_split",
+        "vector_index_does_not_split_records": bool(vector_rows)
+        and all(row.get("record_level") is True and row.get("chunked") is False and row.get("segment_index") == 0 for row in vector_rows)
+        and len({row.get("source_id") for row in vector_rows}) == len(vector_rows),
+        "vector_source_id_exact_lookup_pass": exact.get("matches", [{}])[0].get("source_id") == utterance["id"],
+        "vector_lookup_returns_source_refs": bool(query.get("matches"))
+        and all(row.get("source_id") and row.get("source_type") and row.get("path") for row in query.get("matches", [])),
+        "vector_lookup_does_not_bypass_review": world_before == world_after and table_before == table_after,
+        "vector_preview_not_authoritative": bool(query.get("matches"))
+        and all(
+            row.get("matched_text_is_preview") is True
+            and row.get("matched_text_is_authoritative") is False
+            and row.get("record_level") is True
+            for row in query.get("matches", [])
+        ),
+    }
+
+
 def check_index_cache(project_root: Path) -> dict[str, bool]:
     run_script(
         project_root,
@@ -1564,6 +1600,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("e2e_multi_transcript", check_e2e_multi_transcript),
         ("cross_reference_validation", check_cross_reference_validation),
         ("evidence_lookup", check_evidence_lookup),
+        ("vector_lookup", check_vector_lookup),
         ("index_cache", check_index_cache),
         ("hook_runtime_hygiene", check_hook_runtime_hygiene),
         ("legacy_state_migration", check_legacy_state_migration),

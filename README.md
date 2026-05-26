@@ -82,6 +82,17 @@ python .project_cognition/scripts/validate_state.py
 python evals/run_minimal_eval.py
 ```
 
+按需查找证据：
+
+```bash
+python .project_cognition/scripts/index_segments.py
+python .project_cognition/scripts/lookup_evidence.py --query "WORLD_STATE" --limit 5
+python .project_cognition/scripts/build_vector_index.py
+python .project_cognition/scripts/vector_lookup.py --query "WORLD_STATE" --limit 5
+```
+
+lookup 和 vector lookup 只返回 `source_id`、路径和非权威预览。使用证据前，应按 `source_id` 回读完整原始记录。
+
 ### 已有项目初始化
 
 把本系统用于已有项目：
@@ -233,6 +244,17 @@ Validate state files and run regression tests:
 python .project_cognition/scripts/validate_state.py
 python evals/run_minimal_eval.py
 ```
+
+Look up evidence on demand:
+
+```bash
+python .project_cognition/scripts/index_segments.py
+python .project_cognition/scripts/lookup_evidence.py --query "WORLD_STATE" --limit 5
+python .project_cognition/scripts/build_vector_index.py
+python .project_cognition/scripts/vector_lookup.py --query "WORLD_STATE" --limit 5
+```
+
+Lookup and vector lookup only return `source_id`, paths, and non-authoritative previews. Read the full raw record by `source_id` before using it as evidence.
 
 ### Bootstrap An Existing Project
 

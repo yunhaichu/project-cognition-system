@@ -21,6 +21,8 @@ Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_resul
 
 The retrieval sidecar is record-level. It may score or vectorize whole user utterance, tool evidence, or tool-call records, but it must not split those records into authoritative memory chunks. Lookup results can show short previews for triage, yet the stable evidence remains the full raw record addressed by `source_id` and `path`.
 
+`build_vector_index.py` and `vector_lookup.py` provide an optional local vector sidecar. The default implementation uses a standard-library hashing vector so the MVP keeps zero required third-party dependencies. This sidecar is an evidence locator only: it can rank whole records and return source references, but it cannot update `WORLD_STATE.md`, write candidates, or turn a preview into a fact source.
+
 ## Structured Cognition
 
 Candidates keep a human-readable `claim`, but also carry a minimal structured object:
