@@ -1585,6 +1585,66 @@ def check_auto_governance_gate(project_root: Path) -> dict[str, bool]:
     }
 
 
+def check_governance_gate_budget(project_root: Path) -> dict[str, bool]:
+    high = item(
+        "budget_high",
+        claim="Highest priority user rule should enter the gate budget.",
+        source_type="user_utterance",
+        modality="must_not",
+        scope="project",
+        subject="assistant_output",
+        predicate="enter_core_memory",
+        object_value="assistant final output",
+        confidence=99,
+        status="candidate",
+    )
+    mid = item(
+        "budget_mid",
+        claim="Second priority user rule should enter the gate budget.",
+        source_type="user_utterance",
+        modality="must",
+        scope="project",
+        subject="history_context",
+        predicate="read_source",
+        object_value="specified source records",
+        confidence=98,
+        status="candidate",
+    )
+    low = item(
+        "budget_low",
+        claim="Lower priority user rule should stay in distilled when the gate budget is full.",
+        source_type="user_utterance",
+        modality="should",
+        scope="project",
+        subject="world_state",
+        predicate="render",
+        object_value="secondary implementation detail",
+        confidence=95,
+        status="candidate",
+    )
+    for row in [high, mid, low]:
+        row["evidence_types"] = ["user_utterance"]
+        row["score_signals"] = ["user_explicit_preference"]
+    set_items(project_root, [high, mid, low])
+    gate = run_script(
+        project_root,
+        "auto_governance_gate.py",
+        ["--max-allowed", "2", "--max-per-category", "0", "--max-per-predicate", "0", "--max-per-slot", "0"],
+    )
+    build = run_script(project_root, "build_world_state.py")
+    allowed = set(gate.get("allowed_item_ids", []))
+    low_decision = next(row for row in gate.get("decisions", []) if row.get("id") == "budget_low")
+    budget = gate.get("admission_budget", {})
+    budget_blocked = budget.get("budget_blocked_ids", {}).get("max_allowed", [])
+    return {
+        "gate_budget_keeps_top_priority": allowed == {"budget_high", "budget_mid"},
+        "gate_budget_blocks_lower_priority": "budget_low" in budget_blocked
+        and "blocked_by_gate_budget_max_allowed" in low_decision.get("reasons", []),
+        "world_state_uses_budgeted_gate": set(build.get("included_cognition_ids", [])) == {"budget_high", "budget_mid"},
+        "budget_metrics_reported": budget.get("max_allowed") == 2 and budget.get("kept_count") == 2,
+    }
+
+
 def check_compound_sentence_extraction(project_root: Path) -> dict[str, bool]:
     utterance = {
         "id": "utt_compound",
@@ -1839,6 +1899,7 @@ def run_eval(dogfood_transcript: Path | None = None) -> dict[str, Any]:
         ("conflict_cluster_review", check_conflict_cluster_review),
         ("candidate_clustering", check_candidate_clustering),
         ("auto_governance_gate", check_auto_governance_gate),
+        ("governance_gate_budget", check_governance_gate_budget),
         ("compound_sentence_extraction", check_compound_sentence_extraction),
         ("drift_report", check_drift_report),
         ("post_hook_sidecar_pipeline", check_post_hook_sidecar_pipeline),

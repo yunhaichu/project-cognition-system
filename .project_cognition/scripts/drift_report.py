@@ -81,11 +81,17 @@ def load_governance_gate_metrics() -> dict[str, Any]:
             "governance_allowed_item_ids": [],
         }
     data = read_json(GOVERNANCE_GATE, {})
+    budget = data.get("admission_budget", {})
     return {
         "governance_gate_file_exists": True,
         "governance_allowed_count": int(data.get("allowed_count", 0)),
         "governance_blocked_count": int(data.get("blocked_count", 0)),
         "governance_blocked_reason_counts": data.get("blocked_reason_counts", {}),
+        "governance_admission_budget": {
+            "max_allowed": int(budget.get("max_allowed", 0)),
+            "kept_count": int(budget.get("kept_count", 0)),
+            "budget_blocked_ids": budget.get("budget_blocked_ids", {}),
+        },
         "governance_allowed_item_ids": list(data.get("allowed_item_ids", [])),
     }
 

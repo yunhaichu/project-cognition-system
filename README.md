@@ -121,7 +121,7 @@ session transcript
   -> WORLD_STATE.md / WORLD_STATE_COMPACT.md
 ```
 
-每轮任务开始时，hook 读取 compact state。每轮任务结束时，post hook 可以导入本轮 transcript，自动聚类重复候选和冲突，运行自动治理准入，并重建项目状态。
+每轮任务开始时，hook 读取 compact state。每轮任务结束时，post hook 可以导入本轮 transcript，自动聚类重复候选和冲突，运行自动治理准入，并重建项目状态。治理准入带有预算控制，会优先保留高权重证据和代表性认知，重复或低优先级条目留在 distilled 层而不进入核心状态。
 
 ### 目录结构
 
@@ -288,7 +288,7 @@ session transcript
   -> WORLD_STATE.md / WORLD_STATE_COMPACT.md
 ```
 
-At task start, hooks read compact state. At task end, the post hook can ingest the current transcript, automatically cluster duplicate candidates and conflicts, run the governance gate, and rebuild project state.
+At task start, hooks read compact state. At task end, the post hook can ingest the current transcript, automatically cluster duplicate candidates and conflicts, run the governance gate, and rebuild project state. The governance gate applies admission budgets, keeping high-authority representative cognition in core state while leaving duplicate or lower-priority items in the distilled layer.
 
 ### Directory Layout
 
