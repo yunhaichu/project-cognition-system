@@ -102,9 +102,9 @@ def resolve(conflict_id: str, action: str, reason: str) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Resolve or defer a recorded cognition conflict without silently overwriting evidence.")
     parser.add_argument("--list-unresolved", action="store_true", help="List unresolved or deferred high-severity conflicts.")
-    parser.add_argument("--conflict-id", help="Conflict id to review.")
+    parser.add_argument("--conflict-id", help="Conflict id to resolve.")
     parser.add_argument("--action", choices=["choose-a", "choose-b", "defer", "mark-resolved"], help="Conflict resolution action.")
-    parser.add_argument("--reason", default="", help="Human review reason.")
+    parser.add_argument("--reason", default="", help="Resolution reason.")
     args = parser.parse_args()
 
     if args.list_unresolved:

@@ -17,7 +17,7 @@ Tool calls are split into audit logs and formal evidence:
 - `logs/tool_calls/<session>.jsonl` stores the full tool call output for audit.
 - `raw/tool_evidence.jsonl` stores a normalized record with `evidence_kind`, `deterministic`, `outcome`, `source_log_id`, and a bounded `content_summary`.
 
-Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_result`, `web_result`, and `command_output`. The scoring layer indexes `tool_evidence` directly. Deterministic test, git, and filesystem results score above agent interpretation. Web results and generic command output are weaker. Tool-only candidates remain below automatic `WORLD_STATE.md` inclusion unless accepted through review.
+Supported tool evidence kinds are `test_result`, `git_result`, `filesystem_result`, `web_result`, and `command_output`. The scoring layer indexes `tool_evidence` directly. Deterministic test, git, and filesystem results score above agent interpretation. Web results and generic command output are weaker. Tool-only candidates remain below automatic `WORLD_STATE.md` inclusion unless accepted through the governance gate.
 
 The retrieval sidecar is record-level. It may score or vectorize whole user utterance, tool evidence, or tool-call records, but it must not split those records into authoritative memory chunks. Lookup results can show short previews for triage, yet the stable evidence remains the full raw record addressed by `source_id` and `path`.
 
@@ -42,7 +42,7 @@ Candidates keep a human-readable `claim`, but also carry a minimal structured ob
 }
 ```
 
-The structured fields are intentionally small. They give conflict detection and review a stable handle without turning the MVP into a database or semantic platform.
+The structured fields are intentionally small. They give conflict detection and governance gating a stable handle without turning the MVP into a database or semantic platform.
 
 `predicate` is normalized to a small local enum. Specific predicates include `enter_core_memory`, `store_log`, `create`, `render`, `override`, `require_review`, `inject_context`, `call_llm`, `read_source`, `update_world_state`, `score_evidence`, `resolve_conflict`, and `test_passed`. The fallback predicates `states`, `requires`, `observed`, and `infers` are kept for compatibility and low-confidence extraction.
 
@@ -54,7 +54,7 @@ Conflict detection compares structured fields before falling back to keyword top
 
 ## Conflict Lifecycle
 
-`detect_conflicts.py` records potential contradictions and blocks unresolved high-severity items. `resolve_conflict.py` adds the review path:
+`detect_conflicts.py` records potential contradictions and blocks unresolved high-severity items. `resolve_conflict.py` adds an explicit resolution path:
 
 - `choose-a` or `choose-b`: mark one side as chosen and supersede the losing cognition.
 - `defer`: keep both sides out of `WORLD_STATE.md` until more evidence exists.
@@ -62,14 +62,14 @@ Conflict detection compares structured fields before falling back to keyword top
 
 After resolution, rerun `score_candidates.py` and `build_world_state.py`.
 
-Resolved conflicts include an `audit_summary` with chosen side, loser, supersedes, and blocked status for both sides. This keeps human review inspectable without reading the full confidence table.
+Resolved conflicts include an `audit_summary` with chosen side, loser, supersedes, and blocked status for both sides. This keeps resolution inspectable without reading the full confidence table. Human judgment is not part of the default path; it is only used when explicitly requested.
 
 ## World State Rendering
 
 `WORLD_STATE.md` has two layers:
 
 - bootstrap doctrine: fixed, short guardrails that keep the MVP stable and compact.
-- accepted structured cognition: reviewed cognition objects rendered as bounded bullets.
+- accepted structured cognition: governed cognition objects rendered as bounded bullets.
 
 The compact file remains doctrine-heavy by design. Full state can expose accepted structured cognition without pushing raw evidence or logs into the prompt.
 
@@ -93,7 +93,7 @@ Hooks should inject `WORLD_STATE_COMPACT.md` plus a compact user profile. Raw ev
 
 ## Eval
 
-`evals/run_minimal_eval.py` runs the pipeline in a temporary project copy and checks the core governance invariants: user evidence goes to raw, assistant output stays in logs, tool output becomes formal evidence, candidates are structured, tool-only candidates require review, and compact state remains small.
+`evals/run_minimal_eval.py` runs the pipeline in a temporary project copy and checks the core governance invariants: user evidence goes to raw, assistant output stays in logs, tool output becomes formal evidence, candidates are structured, tool-only candidates require explicit governance acceptance, and compact state remains small.
 
 It also checks five drift scenarios: user evidence overriding agent inference, tool evidence overriding agent inference, same rule with different scope not conflicting, conflict resolution superseding the loser, and accepted structured cognition rendering into `WORLD_STATE.md`.
 
@@ -109,7 +109,7 @@ The regression suite includes negative and multi-session cases:
 - deferred conflicts keep both sides blocked
 - superseded rules do not revive in later sessions
 - compact state keeps only the current high-priority project rule
-- sequential multi-transcript ingestion keeps reviewed rules, supersedes stale rules, and preserves assistant output as logs
+- sequential multi-transcript ingestion keeps accepted rules, supersedes stale rules, and preserves assistant output as logs
 - cross-reference validation rejects dangling cognition, conflict, proposal, and evidence references
 
 The eval suite also includes a dogfood case in `evals/cases/dogfood_self_update.jsonl`, where this project records its own tool evidence scoring, structured conflict, and eval scenario work as candidate cognition without allowing assistant output into core memory.

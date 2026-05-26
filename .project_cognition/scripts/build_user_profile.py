@@ -14,12 +14,13 @@ DEFAULT_PRINCIPLES = [
     "用户认为用户原话权重最高，尤其是长段、反复强调、明确偏好和明确否定。",
     "用户不信任 AI 用自己的总结覆盖用户真实表达。",
     "用户认为 Agent 最终输出权重最低，应作为日志或运行产物，而不是核心记忆。",
-    "用户希望通过证据、置信度、冲突检测和审查流程防止认知污染。",
+    "用户希望通过证据、置信度、冲突检测和自动治理准入防止认知污染。",
     "用户希望默认上下文保持最小化，不把历史对话作为每轮默认上下文；需要历史原文时应定位指定原文读取，而不是批量注入全部历史。",
+    "默认不做人工审查、人工裁决或人工 review 流程；项目认知应优先依赖本地规则、证据、置信度、冲突阻断和自动治理准入，人工介入只在用户明确要求时出现。",
 ]
 
 PROFILE_KEYWORDS = re.compile(
-    r"(当前命令|任务范围|用户原话|真实表达|不信任|AI 总结|AI总结|Agent 输出|最终输出|日志|证据|置信度|冲突|审查|污染|上下文|历史原文|批量注入|直接|务实)"
+    r"(当前命令|任务范围|用户原话|真实表达|不信任|AI 总结|AI总结|Agent 输出|最终输出|日志|证据|置信度|冲突|审查|治理|准入|人工|污染|上下文|历史原文|批量注入|直接|务实)"
 )
 PROJECT_ONLY_KEYWORDS = re.compile(
     r"(本项目|当前项目|MVP|Web UI|数据库|脚本|目录结构|WORLD_STATE|\.project_cognition|AGENTS\.md|hook|Hermes|Codex)"
@@ -44,8 +45,10 @@ def semantic_key(text: str) -> str:
         return "no_ai_summary_override"
     if ("Agent 输出" in text or "最终输出" in text) and ("日志" in text or "核心记忆" in text):
         return "agent_output_log_only"
-    if any(token in text for token in ["证据", "置信度", "冲突", "审查"]) and "污染" in text:
-        return "evidence_review_flow"
+    if any(token in text for token in ["证据", "置信度", "冲突", "审查", "治理", "准入"]) and "污染" in text:
+        return "evidence_governance_gate"
+    if ("人工审查" in text or "人工裁决" in text or "人工 review" in text) and ("默认不" in text or "明确要求" in text):
+        return "no_default_human_review"
     if any(token in text for token in ["上下文", "历史原文", "批量注入"]):
         return "context_minimalism"
     return normalized
@@ -95,6 +98,8 @@ def is_profile_candidate(item: dict[str, Any], min_confidence: int) -> bool:
     if stability != "stable" and evidence_count < 2:
         return False
     claim = clean_claim(str(item.get("claim", "")))
+    if re.search(r"(我看到|当前提交|这轮|README|GitHub|score_candidates|extract_candidates|evals/|\.py|仓库里)", claim):
+        return False
     if not PROFILE_KEYWORDS.search(claim):
         return False
     if PROJECT_ONLY_KEYWORDS.search(claim):

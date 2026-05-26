@@ -145,7 +145,7 @@ def review_cluster(
         "reviewed": reviewed,
         "skipped": skipped,
         "remaining_cluster_count": refreshed.get("cluster_count") if refreshed else None,
-        "note": "Cluster review applies explicit review actions only; clustering itself never chooses truth.",
+        "note": "Cluster governance applies explicit actions only; clustering itself never chooses truth.",
     }
 
 
@@ -159,18 +159,18 @@ def list_clusters() -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Review clustered cognition conflicts without letting clustering decide truth.")
+    parser = argparse.ArgumentParser(description="Apply explicit governance actions to clustered cognition conflicts without letting clustering decide truth.")
     parser.add_argument("--list", action="store_true", help="List current conflict clusters. This is the default with no cluster id.")
-    parser.add_argument("--cluster-id", help="Cluster id to inspect or review.")
+    parser.add_argument("--cluster-id", help="Cluster id to inspect or govern.")
     parser.add_argument("--inspect", action="store_true", help="Print cluster conflicts and item summaries.")
     parser.add_argument(
         "--action",
         choices=["apply-suggested", "choose-item", "defer", "mark-resolved"],
-        help="Review action to apply to conflicts in the cluster.",
+        help="Governance action to apply to conflicts in the cluster.",
     )
     parser.add_argument("--chosen-item-id", default="", help="Cognition item id required for --action choose-item.")
-    parser.add_argument("--reason", default="", help="Human review reason required for mutating actions except dry runs.")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be reviewed without modifying state.")
+    parser.add_argument("--reason", default="", help="Reason required for mutating explicit actions except dry runs.")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be changed without modifying state.")
     parser.add_argument("--no-refresh", action="store_true", help="Do not rebuild conflict_clusters.json after review.")
     args = parser.parse_args()
 
@@ -185,7 +185,7 @@ def main() -> None:
     if args.action == "choose-item" and not args.chosen_item_id:
         raise SystemExit("--chosen-item-id is required for --action choose-item.")
     if not args.dry_run and args.action in {"apply-suggested", "choose-item", "defer"} and not args.reason:
-        raise SystemExit("--reason is required for mutating review actions.")
+        raise SystemExit("--reason is required for mutating governance actions.")
 
     result = review_cluster(
         args.cluster_id,

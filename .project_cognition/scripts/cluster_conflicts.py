@@ -81,27 +81,27 @@ def build_clusters(min_severity: int = 0, include_deferred: bool = True) -> dict
                 "representative_conflict_id": rows[0].get("id", ""),
                 "member_count": len(rows),
                 "max_severity": max_severity,
-                "review_priority": priority(max_severity, len(rows)),
+                "governance_priority": priority(max_severity, len(rows)),
                 "conflict_ids": [row.get("id", "") for row in rows],
                 "cognition_ids": cognition_ids,
                 "topic": topic_from_description(str(rows[0].get("description", ""))),
                 "resolution_states": sorted({str(row.get("resolution", "")) for row in rows}),
             }
         )
-    clusters.sort(key=lambda row: ({"critical": 0, "high": 1, "medium": 2}.get(row["review_priority"], 3), -row["max_severity"], -row["member_count"]))
+    clusters.sort(key=lambda row: ({"critical": 0, "high": 1, "medium": 2}.get(row["governance_priority"], 3), -row["max_severity"], -row["member_count"]))
     return {
         "generated_at": now_iso(),
         "total_conflicts": len(conflicts),
         "cluster_count": len(clusters),
         "clusters": clusters,
-        "note": "Conflict clusters are review aids only; they do not resolve conflicts.",
+        "note": "Conflict clusters are governance triage aids only; they do not resolve conflicts.",
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Cluster unresolved cognition conflicts for review triage.")
+    parser = argparse.ArgumentParser(description="Cluster unresolved cognition conflicts for governance triage.")
     parser.add_argument("--min-severity", type=int, default=0, help="Only cluster conflicts at or above this severity.")
-    parser.add_argument("--unresolved-only", action="store_true", help="Exclude deferred conflicts from the review queue.")
+    parser.add_argument("--unresolved-only", action="store_true", help="Exclude deferred conflicts from the governance queue.")
     args = parser.parse_args()
     result = build_clusters(min_severity=args.min_severity, include_deferred=not args.unresolved_only)
     write_json(CONFLICT_CLUSTERS, result)

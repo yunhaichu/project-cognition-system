@@ -172,7 +172,7 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
         "默认只注入紧凑用户画像与 compact 世界状态；不把当前线程历史、raw、logs 批量塞进模型。",
         "用户原话和真实工具结果权重最高；Agent 最终输出只进日志，不能直接成为核心事实。",
         "WORLD_STATE 只能由受控管线生成；低置信、无证据、未解决冲突不得进入核心状态。",
-        "历史原文只在用户明确要求、证据不足或冲突审查时按具体来源定位读取。",
+        "历史原文只在用户明确要求、证据不足或冲突处理时按具体来源定位读取。",
     ]
     if has_claim(items, "不能用模型反复读取历史|local_only|LLM"):
         key_constraints.append("post hook 默认 local-only，不调用 LLM 总结历史。")
@@ -189,7 +189,7 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
 本项目是低漂移、可追溯、可审计的项目认知系统。它不是普通 RAG、无限 memory.md、聊天摘要器或历史上下文堆叠器。
 
 ## 2. 用户核心意图
-用户要在避免 Agent 认知漂移的同时大幅降低 token 开销。用户原话最高权重，Agent 输出最低权重；核心认知必须有证据、置信度、冲突检测和审查流程。
+用户要在避免 Agent 认知漂移的同时大幅降低 token 开销。用户原话最高权重，Agent 输出最低权重；核心认知必须有证据、置信度、冲突检测和自动治理准入。默认不做人工审查；只有用户明确要求时才引入人工判断或人工裁决。
 
 ## 3. 当前项目状态
 {current_status}
@@ -207,13 +207,13 @@ def render_world_state(items: list[dict[str, Any]]) -> str:
 {bullet_join(risks, "不要把本项目理解成普通 RAG、聊天摘要器、无限记忆文件或大型 Agent 平台。不要把 AI 总结当成用户原话。", 3)}
 
 ## 7. 当前策略
-先维护本地文件版 MVP，不做数据库、Web UI 或大型平台。优先优化 compact hook 注入、proposal/review 和按需证据定位。
+先维护本地文件版 MVP，不做数据库、Web UI 或大型平台。优先优化 compact hook 注入、自动治理准入、冲突阻断和按需证据定位。
 
 ## 8. 偏航检查
 执行前自查：是否违背用户原话；是否把 AI 总结当事实；是否扩大范围；是否忽略真实代码/工具结果；是否需要按源回查原文；是否把低置信推断写成高置信结论。
 
 ## 9. 更新规则
-完整状态写入本文件；hook 只注入 `WORLD_STATE_COMPACT.md`。新认知先进入 `proposals/`，经 `review_update.py` 接受后再由 `build_world_state.py` 生成。
+完整状态写入本文件；hook 只注入 `WORLD_STATE_COMPACT.md`。新认知先进入 `proposals/` 或候选层，经本地规则、评分、冲突检测和显式接受命令后，再由 `build_world_state.py` 生成。
 """
 
 
