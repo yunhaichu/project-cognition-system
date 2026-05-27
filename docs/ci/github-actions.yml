@@ -7,6 +7,8 @@ on:
 jobs:
   governance:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,7 +19,7 @@ jobs:
           python-version: "3.12"
 
       - name: Compile Python scripts
-        run: python -m py_compile .project_cognition/scripts/*.py integrations/codex/*.py integrations/hermes/*.py integrations/hermes/gateway_hook/project_cognition/*.py evals/run_minimal_eval.py
+        run: python -m py_compile .project_cognition/scripts/*.py integrations/codex/*.py integrations/hermes/*.py integrations/hermes/gateway_hook/project_cognition/*.py evals/run_minimal_eval.py scripts/*.py
 
       - name: Validate bundled cognition state
         run: python .project_cognition/scripts/validate_state.py
@@ -39,6 +41,9 @@ jobs:
 
       - name: Run governance evals
         run: python evals/run_minimal_eval.py
+
+      - name: Build sanitized release package
+        run: python scripts/build_package.py --version ci --output-dir /tmp/project-cognition-package
 
       - name: Check whitespace
         run: git diff --check

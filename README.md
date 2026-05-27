@@ -87,6 +87,14 @@ python .project_cognition/scripts/validate_state.py
 python evals/run_minimal_eval.py
 ```
 
+创建脱敏发布包：
+
+```bash
+python scripts/build_package.py --version v0.4.17
+```
+
+发布包默认排除真实 `logs/`、索引、生成态聚类和私有会话证据。
+
 `upgrade_state.py --repair` 会把旧版本项目认知文件升级到当前格式，保留原始证据，只修正元数据并归档可重建索引。post hook 会自动执行这一步。
 
 按需查找证据：
@@ -261,6 +269,14 @@ python .project_cognition/scripts/upgrade_state.py --repair
 python .project_cognition/scripts/validate_state.py
 python evals/run_minimal_eval.py
 ```
+
+Build a sanitized release package:
+
+```bash
+python scripts/build_package.py --version v0.4.17
+```
+
+Release packages exclude real `logs/`, indexes, generated clusters, and private session evidence by default.
 
 `upgrade_state.py --repair` upgrades older project cognition files to the current format. It preserves raw evidence, fixes metadata, and archives rebuildable indexes. The post hook runs it automatically.
 
