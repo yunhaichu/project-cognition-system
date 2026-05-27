@@ -76,7 +76,33 @@ def _candidate_cwds(context: dict[str, Any]) -> list[Path]:
     return unique
 
 
+def _is_unsafe_project_root(path: Path) -> bool:
+    resolved = path.resolve()
+    home = Path.home().resolve()
+    unsafe = {
+        Path("/").resolve(),
+        home,
+        home / "Desktop",
+        home / "Documents",
+        home / "Downloads",
+        home / "Library",
+        home / ".codex",
+        home / ".hermes",
+        home / ".config",
+        home / "codex-hooks",
+    }
+    if resolved in unsafe:
+        return True
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        return False
+    return any(part.startswith(".") for part in parts)
+
+
 def _looks_like_project(path: Path) -> bool:
+    if _is_unsafe_project_root(path):
+        return False
     if not path.is_dir():
         return False
     for marker in PROJECT_MARKER_FILES:
@@ -92,7 +118,7 @@ def _find_project_root(context: dict[str, Any]) -> Path | None:
     for start in _candidate_cwds(context):
         current = start if start.is_dir() else start.parent
         for candidate in [current, *current.parents]:
-            if (candidate / ".project_cognition").is_dir():
+            if not _is_unsafe_project_root(candidate) and (candidate / ".project_cognition").is_dir():
                 return candidate
         for candidate in [current, *current.parents]:
             if _looks_like_project(candidate):

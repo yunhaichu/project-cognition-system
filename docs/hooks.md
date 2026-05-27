@@ -9,6 +9,7 @@ The runtime scripts are agent-agnostic. Integrations are thin wrappers that:
 - pass `PROJECT_COGNITION_AGENT` so user profile paths stay isolated
 
 The wrappers also sync the per-project runtime scripts from the local bootstrap runtime before calling project hooks. This keeps existing project folders on the latest governance pipeline without creating project-level `AGENTS.md`.
+The global runtime at `~/.project_cognition` is only a script/schema source; it must not be treated as a project root when the current directory has no project cognition state.
 
 Codex uses two hooks:
 

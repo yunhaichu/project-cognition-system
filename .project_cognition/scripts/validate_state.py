@@ -23,6 +23,8 @@ def read_json(path: Path) -> Any:
 
 
 def read_jsonl(path: Path) -> list[Any]:
+    if not path.exists():
+        return []
     rows: list[Any] = []
     with path.open("r", encoding="utf-8") as handle:
         for line_no, line in enumerate(handle, 1):

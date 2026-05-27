@@ -1166,9 +1166,12 @@ def check_hook_runtime_hygiene(project_root: Path) -> dict[str, bool]:
     )
     summary = common_module.summarize_post_hook_stdout(noisy_output)
     schema_names = {path.name for path in (target / ".project_cognition" / "schemas").glob("*.schema.json")}
+    unsafe_home_child = Path.home() / "Documents" / "Codex" / "not-a-project"
     return {
         "runtime_sync_copies_schemas": "tool_evidence.schema.json" in schema_names
         and bool(runtime_sync.get("copied_schemas")),
+        "runtime_finds_real_project": common_module.find_project_root(target) == target,
+        "runtime_does_not_treat_home_runtime_as_project": common_module.find_project_root(unsafe_home_child) is None,
         "post_hook_summary_omits_cluster_members": "clusters" not in summary.get("conflict_clusters", {}),
         "post_hook_summary_omits_fingerprint": "source_fingerprint" not in summary.get("evidence_index", {}),
         "post_hook_summary_keeps_metrics": summary.get("evidence_index", {}).get("skipped") is True

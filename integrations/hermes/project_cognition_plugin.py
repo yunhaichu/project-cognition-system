@@ -201,13 +201,15 @@ def _looks_like_project_root(candidate: Path) -> bool:
 
 def _find_project_root(start: Path) -> Path | None:
     for candidate in _candidate_dirs(start):
-        if _has_complete_cognition(candidate):
+        if not _is_unsafe_bootstrap_target(candidate) and _has_complete_cognition(candidate):
             return candidate
     return None
 
 
 def _find_bootstrap_target(start: Path) -> Path | None:
     for candidate in _candidate_dirs(start):
+        if _is_unsafe_bootstrap_target(candidate):
+            continue
         if _has_complete_cognition(candidate):
             return None
         if _looks_like_project_root(candidate):

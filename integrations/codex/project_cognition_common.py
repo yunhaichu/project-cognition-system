@@ -127,7 +127,7 @@ def has_complete_cognition(candidate: Path) -> bool:
 
 def find_project_root(start: Path) -> Path | None:
     for candidate in iter_candidate_dirs(start):
-        if has_complete_cognition(candidate):
+        if not is_unsafe_bootstrap_target(candidate) and has_complete_cognition(candidate):
             return candidate
     return None
 
@@ -170,6 +170,8 @@ def looks_like_project_root(candidate: Path) -> bool:
 
 def find_bootstrap_target(start: Path) -> Path | None:
     for candidate in iter_candidate_dirs(start):
+        if is_unsafe_bootstrap_target(candidate):
+            continue
         if has_complete_cognition(candidate):
             return None
         if looks_like_project_root(candidate):
