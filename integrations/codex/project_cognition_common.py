@@ -22,6 +22,7 @@ BOOTSTRAP_SCRIPT = Path(
     )
 ).expanduser()
 CODEX_USER_PROFILE = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser() / "USER_PROFILE.md"
+AUTO_BOOTSTRAP = os.environ.get("PROJECT_COGNITION_AUTO_BOOTSTRAP", "0").lower() in {"1", "true", "yes", "on"}
 
 PROJECT_MARKER_FILES = {
     ".git",
@@ -230,7 +231,7 @@ def rotate_log_if_needed() -> None:
 
 def find_or_bootstrap_project_root(start: Path, allow_bootstrap: bool = True) -> tuple[Path | None, dict[str, Any] | None]:
     existing = find_project_root(start)
-    if existing or not allow_bootstrap:
+    if existing or not allow_bootstrap or not AUTO_BOOTSTRAP:
         return existing, None
     target = find_bootstrap_target(start)
     if not target:

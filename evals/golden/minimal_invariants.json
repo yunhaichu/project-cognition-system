@@ -37,7 +37,7 @@
     "evidence_lookup": ["source_id_exact_lookup_pass", "lookup_returns_source_refs", "retrieval_does_not_bypass_governance", "retrieval_index_does_not_split_records", "lookup_preview_not_authoritative"],
     "vector_lookup": ["vector_index_builds", "vector_index_does_not_split_records", "vector_source_id_exact_lookup_pass", "vector_lookup_returns_source_refs", "vector_lookup_does_not_bypass_governance", "vector_preview_not_authoritative"],
     "index_cache": ["first_index_builds", "unchanged_index_skips", "index_summary_hides_fingerprint"],
-    "hook_runtime_hygiene": ["runtime_sync_copies_schemas", "runtime_finds_real_project", "runtime_does_not_treat_home_runtime_as_project", "post_hook_summary_omits_cluster_members", "post_hook_summary_omits_fingerprint", "post_hook_summary_keeps_metrics"],
+    "hook_runtime_hygiene": ["runtime_sync_copies_schemas", "runtime_finds_real_project", "runtime_does_not_treat_home_runtime_as_project", "runtime_does_not_bootstrap_by_default", "post_hook_summary_omits_cluster_members", "post_hook_summary_omits_fingerprint", "post_hook_summary_keeps_metrics"],
     "legacy_state_migration": ["legacy_report_detects_orphan", "legacy_repair_backs_up_derived", "legacy_repair_quarantines_orphan", "legacy_repair_keeps_raw_evidence", "legacy_orphan_not_core_after_repair", "legacy_repair_validates_state"],
     "versioned_state_upgrade": ["upgrade_reports_pending_changes", "upgrade_backfills_utterance_intent", "upgrade_normalizes_legacy_read_predicate", "upgrade_blocks_non_direct_user_core", "upgrade_archives_rebuildable_index", "upgrade_writes_state_version", "upgrade_validates_state"],
     "conflict_clustering": ["conflict_cluster_integrity"],

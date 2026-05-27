@@ -40,6 +40,7 @@ _HERMES_USER_PROFILE = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".he
 _MAX_CONTEXT_CHARS = int(os.environ.get("HERMES_PROJECT_COGNITION_MAX_CONTEXT_CHARS", "1600"))
 _INJECT_MODE = os.environ.get("HERMES_PROJECT_COGNITION_INJECT_MODE", "once").lower()
 _RUN_POST_HOOK = os.environ.get("HERMES_PROJECT_COGNITION_RUN_POST_HOOK", "1").lower() in {"1", "true", "yes", "on"}
+_AUTO_BOOTSTRAP = os.environ.get("HERMES_PROJECT_COGNITION_AUTO_BOOTSTRAP", "0").lower() in {"1", "true", "yes", "on"}
 _PRE_HOOK_TIMEOUT = int(os.environ.get("HERMES_PROJECT_COGNITION_PRE_TIMEOUT", "30"))
 _POST_HOOK_TIMEOUT = int(os.environ.get("HERMES_PROJECT_COGNITION_POST_TIMEOUT", "90"))
 _PROFILE_TIMEOUT = int(os.environ.get("HERMES_PROJECT_COGNITION_PROFILE_TIMEOUT", "15"))
@@ -240,7 +241,7 @@ def _bootstrap_project(target_root: Path, timeout: int = 60) -> subprocess.Compl
 
 def _find_or_bootstrap_project_root(start: Path, allow_bootstrap: bool = True) -> tuple[Path | None, dict[str, Any] | None]:
     existing = _find_project_root(start)
-    if existing or not allow_bootstrap:
+    if existing or not allow_bootstrap or not _AUTO_BOOTSTRAP:
         return existing, None
 
     target = _find_bootstrap_target(start)

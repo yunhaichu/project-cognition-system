@@ -10,6 +10,7 @@ The runtime scripts are agent-agnostic. Integrations are thin wrappers that:
 
 The wrappers also sync the per-project runtime scripts from the local bootstrap runtime before calling project hooks. This keeps existing project folders on the latest governance pipeline without creating project-level `AGENTS.md`.
 The global runtime at `~/.project_cognition` is only a script/schema source; it must not be treated as a project root when the current directory has no project cognition state.
+Automatic bootstrap is disabled by default. Set `PROJECT_COGNITION_AUTO_BOOTSTRAP=1` for Codex or `HERMES_PROJECT_COGNITION_AUTO_BOOTSTRAP=1` for Hermes when you explicitly want hooks to create `.project_cognition/` in a new project. Otherwise, initialize existing projects with `bootstrap_existing_project.py`.
 
 Codex uses two hooks:
 
