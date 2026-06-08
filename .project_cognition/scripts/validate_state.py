@@ -8,8 +8,10 @@ from typing import Any
 
 
 EVIDENCE_PREFIXES = ("utt_", "interp_", "tool_ev_", "ev_")
+FEEDBACK_PREFIXES = ("fb_",)
 COGNITION_PREFIXES = ("cog_",)
 CONFLICT_PREFIXES = ("conflict_",)
+RULE_PROPOSAL_PREFIXES = ("rule_prop_",)
 
 
 class ValidationError(ValueError):
@@ -181,6 +183,17 @@ def validate_feedback_target(
     return []
 
 
+def validate_rule_target_path(path_value: str, label: str) -> list[str]:
+    if not path_value:
+        return []
+    target = Path(path_value)
+    if target.is_absolute():
+        return [f"{label}: target_path must be relative, got {path_value!r}"]
+    if not path_value.startswith(".project_cognition/"):
+        return [f"{label}: target_path must stay under .project_cognition/, got {path_value!r}"]
+    return []
+
+
 def validate_cross_references(root: Path) -> tuple[int, list[str]]:
     cognition_root = root / ".project_cognition"
     utterances = read_jsonl(cognition_root / "raw" / "user_utterances.jsonl")
@@ -190,13 +203,18 @@ def validate_cross_references(root: Path) -> tuple[int, list[str]]:
     conflicts = read_jsonl(cognition_root / "raw" / "conflicts.jsonl")
     feedback_events = read_jsonl(cognition_root / "raw" / "feedback_events.jsonl")
     proposals = read_jsonl(cognition_root / "proposals" / "proposed_updates.jsonl")
+    rule_change_proposals = read_jsonl(cognition_root / "proposals" / "rule_change_proposals.jsonl")
+    rule_change_log = read_jsonl(cognition_root / "raw" / "rule_change_log.jsonl")
     confidence_table = read_json(cognition_root / "distilled" / "confidence_table.json") if (cognition_root / "distilled" / "confidence_table.json").exists() else {"items": []}
     cognition_items = confidence_table.get("items", []) if isinstance(confidence_table, dict) else []
 
     utterance_ids = ids_by_record(utterances)
     interpretation_ids = ids_by_record(interpretations)
     tool_evidence_ids = ids_by_record(tool_evidence)
+    feedback_ids = ids_by_record(feedback_events)
+    rule_proposal_ids = ids_by_record(rule_change_proposals)
     evidence_ids = utterance_ids | interpretation_ids | tool_evidence_ids
+    rule_evidence_ids = evidence_ids | feedback_ids
     cognition_ids = ids_by_record(cognition_items)
     conflict_ids = ids_by_record(conflicts)
     tool_log_ids = ids_by_record(read_all_tool_logs(root))
@@ -243,37 +261,22 @@ def validate_cross_references(root: Path) -> tuple[int, list[str]]:
         if isinstance(audit, dict):
             for key in ["chosen", "loser"]:
                 errors.extend(validate_reference(str(audit.get(key, "")), cognition_ids, f"{label}.audit_summary.{key}", "cognition item", COGNITION_PREFIXES))
-            errors.extend(
-                validate_references(
-                    audit.get("supersedes", []),
-                    cognition_ids,
-                    f"{label}.audit_summary.supersedes",
-                    "cognition item",
-                    COGNITION_PREFIXES,
-                )
-            )
+            errors.extend(validate_references(audit.get("supersedes", []), cognition_ids, f"{label}.audit_summary.supersedes", "cognition item", COGNITION_PREFIXES))
 
     for index, row in enumerate(feedback_events, 1):
         label = f"raw/feedback_events.jsonl:{index}"
-        errors.extend(
-            validate_references(
-                row.get("source_refs", []),
-                evidence_ids,
-                f"{label}.source_refs",
-                "evidence",
-                EVIDENCE_PREFIXES,
-            )
-        )
-        errors.extend(
-            validate_feedback_target(
-                row,
-                label=label,
-                utterance_ids=utterance_ids,
-                tool_evidence_ids=tool_evidence_ids,
-                cognition_ids=cognition_ids,
-                conflict_ids=conflict_ids,
-            )
-        )
+        errors.extend(validate_references(row.get("source_refs", []), evidence_ids, f"{label}.source_refs", "evidence", EVIDENCE_PREFIXES))
+        errors.extend(validate_feedback_target(row, label=label, utterance_ids=utterance_ids, tool_evidence_ids=tool_evidence_ids, cognition_ids=cognition_ids, conflict_ids=conflict_ids))
+
+    for index, row in enumerate(rule_change_proposals, 1):
+        label = f"proposals/rule_change_proposals.jsonl:{index}"
+        errors.extend(validate_references(row.get("evidence", []), rule_evidence_ids, f"{label}.evidence", "rule evidence", EVIDENCE_PREFIXES + FEEDBACK_PREFIXES))
+        errors.extend(validate_rule_target_path(str(row.get("target_path", "")), f"{label}.target_path"))
+
+    for index, row in enumerate(rule_change_log, 1):
+        label = f"raw/rule_change_log.jsonl:{index}"
+        errors.extend(validate_reference(str(row.get("proposal_id", "")), rule_proposal_ids, f"{label}.proposal_id", "rule change proposal", RULE_PROPOSAL_PREFIXES))
+        errors.extend(validate_rule_target_path(str(row.get("target_path", "")), f"{label}.target_path"))
 
     for index, row in enumerate(cognition_items):
         label = f"distilled/confidence_table.json.items[{index}]"
@@ -283,24 +286,8 @@ def validate_cross_references(root: Path) -> tuple[int, list[str]]:
         errors.extend(validate_reference(superseded_by, cognition_ids, f"{label}.superseded_by", "cognition item", COGNITION_PREFIXES))
         structured = row.get("structured", {})
         if isinstance(structured, dict):
-            errors.extend(
-                validate_references(
-                    structured.get("source_refs", []),
-                    evidence_ids,
-                    f"{label}.structured.source_refs",
-                    "evidence",
-                    EVIDENCE_PREFIXES,
-                )
-            )
-            errors.extend(
-                validate_references(
-                    structured.get("supersedes", []),
-                    cognition_ids,
-                    f"{label}.structured.supersedes",
-                    "cognition item",
-                    COGNITION_PREFIXES,
-                )
-            )
+            errors.extend(validate_references(structured.get("source_refs", []), evidence_ids, f"{label}.structured.source_refs", "evidence", EVIDENCE_PREFIXES))
+            errors.extend(validate_references(structured.get("supersedes", []), cognition_ids, f"{label}.structured.supersedes", "cognition item", COGNITION_PREFIXES))
 
     for index, row in enumerate(proposals, 1):
         label = f"proposals/proposed_updates.jsonl:{index}"
@@ -308,34 +295,10 @@ def validate_cross_references(root: Path) -> tuple[int, list[str]]:
         errors.extend(validate_references(row.get("conflicts", []), conflict_ids, f"{label}.conflicts", "conflict", CONFLICT_PREFIXES))
         structured = row.get("structured", {})
         if isinstance(structured, dict):
-            errors.extend(
-                validate_references(
-                    structured.get("source_refs", []),
-                    evidence_ids,
-                    f"{label}.structured.source_refs",
-                    "evidence",
-                    EVIDENCE_PREFIXES,
-                )
-            )
-            errors.extend(
-                validate_references(
-                    structured.get("supersedes", []),
-                    cognition_ids,
-                    f"{label}.structured.supersedes",
-                    "cognition item",
-                    COGNITION_PREFIXES,
-                )
-            )
+            errors.extend(validate_references(structured.get("source_refs", []), evidence_ids, f"{label}.structured.source_refs", "evidence", EVIDENCE_PREFIXES))
+            errors.extend(validate_references(structured.get("supersedes", []), cognition_ids, f"{label}.structured.supersedes", "cognition item", COGNITION_PREFIXES))
 
-    checked = (
-        len(interpretations)
-        + len(tool_evidence)
-        + len(decisions)
-        + len(conflicts)
-        + len(feedback_events)
-        + len(cognition_items)
-        + len(proposals)
-    )
+    checked = len(interpretations) + len(tool_evidence) + len(decisions) + len(conflicts) + len(feedback_events) + len(rule_change_proposals) + len(rule_change_log) + len(cognition_items) + len(proposals)
     return checked, errors
 
 
@@ -347,14 +310,12 @@ def validate_state(root: Path) -> dict[str, Any]:
         ("raw/decisions.jsonl", "decision.schema.json", "jsonl"),
         ("raw/conflicts.jsonl", "conflict.schema.json", "jsonl"),
         ("raw/feedback_events.jsonl", "feedback_event.schema.json", "jsonl"),
+        ("raw/rule_change_log.jsonl", "rule_change_log.schema.json", "jsonl"),
         ("proposals/proposed_updates.jsonl", "proposed_update.schema.json", "jsonl"),
+        ("proposals/rule_change_proposals.jsonl", "rule_change_proposal.schema.json", "jsonl"),
         ("distilled/state_version.json", "state_version.schema.json", "json"),
     ]
-    summary: dict[str, Any] = {
-        "target_root": str(root),
-        "validated": {},
-        "errors": [],
-    }
+    summary: dict[str, Any] = {"target_root": str(root), "validated": {}, "errors": []}
     for relative_path, schema_name, kind in targets:
         path = root / ".project_cognition" / relative_path
         schema = load_schema(root, schema_name)
@@ -380,7 +341,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate Project Cognition JSON/JSONL state using the bundled schema subset.")
     parser.add_argument("--target-root", default=".", help="Project root containing .project_cognition. Default: current directory.")
     args = parser.parse_args()
-
     root = Path(args.target_root).resolve()
     if not (root / ".project_cognition").exists():
         raise SystemExit(f"No .project_cognition directory under {root}")
