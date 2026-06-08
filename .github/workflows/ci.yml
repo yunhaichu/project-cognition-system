@@ -66,6 +66,9 @@ jobs:
       - name: Run conditional conflict evals
         run: python evals/run_conditional_conflict_eval.py
 
+      - name: Run context selection evals
+        run: python evals/run_context_selection_eval.py
+
       - name: Build sanitized release package
         run: python scripts/build_package.py --version ci --output-dir /tmp/project-cognition-package
 
