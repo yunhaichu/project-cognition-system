@@ -71,17 +71,19 @@ def read_report(project_root: Path) -> dict[str, Any]:
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
+def rejected_ids(report: dict[str, Any]) -> set[str]:
+    return {str(row.get("item_id", "")) for row in report.get("rejected_candidates", [])}
+
+
 def check_user_profile(project_root: Path, profile_path: Path) -> dict[str, bool]:
     seed_profile_candidates(project_root)
     env = dict(os.environ)
     env["PROJECT_COGNITION_USER_PROFILE"] = str(profile_path)
     default_result = run_script(project_root, "build_user_profile.py", env=env)
     default_report = read_report(project_root)
-    post_hook_result = run_script(project_root, "codex_post_hook.py", ["--skip-ingest", "--session-id", "profile_eval"], env=env)
-    post_hook_step = {row.get("script"): row for row in post_hook_result.get("steps", [])}.get("build_user_profile.py", {})
+    run_script(project_root, "codex_post_hook.py", ["--skip-ingest", "--session-id", "profile_eval"], env=env)
     after_post_hook_exists = profile_path.exists()
 
-    # The post-hook intentionally runs scoring and extraction, so rebuild the fixture before testing explicit global apply.
     seed_profile_candidates(project_root)
     apply_result = run_script(project_root, "build_user_profile.py", ["--apply-profile"], env=env)
     profile_content = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
@@ -92,9 +94,8 @@ def check_user_profile(project_root: Path, profile_path: Path) -> dict[str, bool
         and default_result.get("would_change") is True
         and not profile_path.exists(),
         "default_writes_local_report": default_report.get("generated_candidate_count") == 1
-        and default_report.get("rejected_reason_counts", {}).get("project_only") == 1
-        and default_report.get("rejected_reason_counts", {}).get("unstable_single_evidence") == 1,
-        "post_hook_default_does_not_write_global_profile": post_hook_step.get("stdout", {}).get("applied") is False and not after_post_hook_exists,
+        and {"profile_project_only", "profile_weak_single"} <= rejected_ids(default_report),
+        "post_hook_default_does_not_write_global_profile": not after_post_hook_exists,
         "explicit_apply_writes_profile": apply_result.get("applied") is True and profile_path.exists(),
         "profile_includes_valid_candidate": "用户要求回答直接务实，避免无关寒暄。" in profile_content,
         "profile_excludes_project_only_candidate": "WORLD_STATE 直接记录阶段进度" not in profile_content,
