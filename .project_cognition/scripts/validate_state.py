@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 
-SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_PREFIXES = ("utt_", "interp_", "tool_ev_", "ev_")
 COGNITION_PREFIXES = ("cog_",)
 CONFLICT_PREFIXES = ("conflict_",)
@@ -160,6 +159,28 @@ def read_all_tool_logs(root: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def validate_feedback_target(
+    row: dict[str, Any],
+    *,
+    label: str,
+    utterance_ids: set[str],
+    tool_evidence_ids: set[str],
+    cognition_ids: set[str],
+    conflict_ids: set[str],
+) -> list[str]:
+    target_type = str(row.get("target_type", ""))
+    target_id = str(row.get("target_id", ""))
+    if target_type == "cognition":
+        return validate_reference(target_id, cognition_ids, f"{label}.target_id", "cognition item", COGNITION_PREFIXES)
+    if target_type == "conflict":
+        return validate_reference(target_id, conflict_ids, f"{label}.target_id", "conflict", CONFLICT_PREFIXES)
+    if target_type == "tool_evidence":
+        return validate_reference(target_id, tool_evidence_ids, f"{label}.target_id", "tool evidence", ("tool_ev_",))
+    if target_type == "user_utterance":
+        return validate_reference(target_id, utterance_ids, f"{label}.target_id", "user utterance", ("utt_",))
+    return []
+
+
 def validate_cross_references(root: Path) -> tuple[int, list[str]]:
     cognition_root = root / ".project_cognition"
     utterances = read_jsonl(cognition_root / "raw" / "user_utterances.jsonl")
@@ -167,6 +188,7 @@ def validate_cross_references(root: Path) -> tuple[int, list[str]]:
     tool_evidence = read_jsonl(cognition_root / "raw" / "tool_evidence.jsonl")
     decisions = read_jsonl(cognition_root / "raw" / "decisions.jsonl")
     conflicts = read_jsonl(cognition_root / "raw" / "conflicts.jsonl")
+    feedback_events = read_jsonl(cognition_root / "raw" / "feedback_events.jsonl")
     proposals = read_jsonl(cognition_root / "proposals" / "proposed_updates.jsonl")
     confidence_table = read_json(cognition_root / "distilled" / "confidence_table.json") if (cognition_root / "distilled" / "confidence_table.json").exists() else {"items": []}
     cognition_items = confidence_table.get("items", []) if isinstance(confidence_table, dict) else []
@@ -231,6 +253,28 @@ def validate_cross_references(root: Path) -> tuple[int, list[str]]:
                 )
             )
 
+    for index, row in enumerate(feedback_events, 1):
+        label = f"raw/feedback_events.jsonl:{index}"
+        errors.extend(
+            validate_references(
+                row.get("source_refs", []),
+                evidence_ids,
+                f"{label}.source_refs",
+                "evidence",
+                EVIDENCE_PREFIXES,
+            )
+        )
+        errors.extend(
+            validate_feedback_target(
+                row,
+                label=label,
+                utterance_ids=utterance_ids,
+                tool_evidence_ids=tool_evidence_ids,
+                cognition_ids=cognition_ids,
+                conflict_ids=conflict_ids,
+            )
+        )
+
     for index, row in enumerate(cognition_items):
         label = f"distilled/confidence_table.json.items[{index}]"
         errors.extend(validate_references(row.get("evidence", []), evidence_ids, f"{label}.evidence", "evidence", EVIDENCE_PREFIXES))
@@ -288,6 +332,7 @@ def validate_cross_references(root: Path) -> tuple[int, list[str]]:
         + len(tool_evidence)
         + len(decisions)
         + len(conflicts)
+        + len(feedback_events)
         + len(cognition_items)
         + len(proposals)
     )
@@ -301,6 +346,7 @@ def validate_state(root: Path) -> dict[str, Any]:
         ("raw/tool_evidence.jsonl", "tool_evidence.schema.json", "jsonl"),
         ("raw/decisions.jsonl", "decision.schema.json", "jsonl"),
         ("raw/conflicts.jsonl", "conflict.schema.json", "jsonl"),
+        ("raw/feedback_events.jsonl", "feedback_event.schema.json", "jsonl"),
         ("proposals/proposed_updates.jsonl", "proposed_update.schema.json", "jsonl"),
         ("distilled/state_version.json", "state_version.schema.json", "json"),
     ]
