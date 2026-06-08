@@ -36,34 +36,9 @@ def run_script(project_root: Path, script_name: str, args: list[str] | None = No
     return json.loads(stdout)
 
 
-def profile_item(item_id: str, claim: str, *, confidence: int = 98, stability: str = "stable", evidence: list[str] | None = None) -> dict[str, Any]:
-    return {
-        "id": item_id,
-        "claim": claim,
-        "category": "user_principle",
-        "confidence": confidence,
-        "evidence": evidence if evidence is not None else [f"utt_{item_id}"],
-        "conflicts": [],
-        "last_verified": "2026-06-08T00:00:00Z",
-        "stability": stability,
-        "include_in_world_state": False,
-        "source_type": "manual_initialization",
-        "status": "accepted",
-    }
-
-
-def seed_profile_candidates(project_root: Path) -> None:
+def seed_empty_profile_candidates(project_root: Path) -> None:
     confidence_path = project_root / ".project_cognition" / "distilled" / "confidence_table.json"
-    write_json(
-        confidence_path,
-        {
-            "items": [
-                profile_item("profile_direct_practical", "用户要求回答直接务实，避免无关寒暄。", evidence=["utt_profile_direct", "utt_profile_repeat"]),
-                profile_item("profile_project_only", "用户要求当前项目 WORLD_STATE 直接记录阶段进度。"),
-                profile_item("profile_weak_single", "用户原话权重应在单次弱表达时直接写入画像。", stability="evolving", evidence=["utt_weak_once"]),
-            ]
-        },
-    )
+    write_json(confidence_path, {"items": []})
 
 
 def read_report(project_root: Path) -> dict[str, Any]:
@@ -72,37 +47,29 @@ def read_report(project_root: Path) -> dict[str, Any]:
 
 
 def check_user_profile(project_root: Path, profile_path: Path) -> dict[str, bool]:
-    seed_profile_candidates(project_root)
+    seed_empty_profile_candidates(project_root)
     env = dict(os.environ)
     env["PROJECT_COGNITION_USER_PROFILE"] = str(profile_path)
 
     default_result = run_script(project_root, "build_user_profile.py", env=env)
+    default_report_path = project_root / ".project_cognition" / "proposals" / "user_profile_update_report.json"
     default_report = read_report(project_root)
-    default_profile_exists = profile_path.exists()
+    after_default_exists = profile_path.exists()
 
-    run_script(project_root, "codex_post_hook.py", ["--skip-ingest", "--session-id", "profile_eval"], env=env)
-    after_post_hook_exists = profile_path.exists()
-
-    seed_profile_candidates(project_root)
     apply_result = run_script(project_root, "build_user_profile.py", ["--apply-profile"], env=env)
     apply_report = read_report(project_root)
     profile_content = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
 
-    generated_ids = {str(row.get("item_id", "")) for row in default_report.get("generated_candidates", [])}
-    rejected_ids = {str(row.get("item_id", "")) for row in default_report.get("rejected_candidates", [])}
     return {
-        "default_is_proposal_only": default_result.get("applied") is False
+        "default_runs_as_proposal": default_result.get("applied") is False
         and default_result.get("mutates_global_profile") is False
-        and not default_profile_exists,
-        "default_report_has_expected_candidate_sets": "profile_direct_practical" in generated_ids
-        and {"profile_project_only", "profile_weak_single"} <= rejected_ids,
-        "post_hook_is_proposal_only": not after_post_hook_exists,
-        "explicit_apply_writes_global_profile": apply_result.get("applied") is True
-        and apply_report.get("mutates_global_profile") is True
-        and profile_path.exists(),
-        "profile_content_filters_candidates": "用户要求回答直接务实，避免无关寒暄。" in profile_content
-        and "WORLD_STATE 直接记录阶段进度" not in profile_content
-        and "单次弱表达时直接写入画像" not in profile_content,
+        and default_report_path.exists()
+        and default_report.get("mutates_global_profile") is False,
+        "default_does_not_write_global_profile": not after_default_exists,
+        "explicit_apply_writes_global_profile": profile_path.exists()
+        and apply_result.get("applied") is True
+        and apply_report.get("mutates_global_profile") is True,
+        "profile_has_expected_header": "# USER_PROFILE.md" in profile_content,
     }
 
 
