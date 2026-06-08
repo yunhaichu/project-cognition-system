@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GovernancePolicy",
+  "type": "object",
+  "required": ["version", "thresholds", "admission_budget", "allowed_accepted_sources", "priority"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "local_only": {"type": "boolean"},
+    "llm_used": {"type": "boolean"},
+    "thresholds": {
+      "type": "object",
+      "required": ["min_confidence", "min_confidence_user", "min_confidence_tool", "min_conflict_severity"],
+      "properties": {
+        "min_confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+        "min_confidence_user": {"type": "integer", "minimum": 0, "maximum": 100},
+        "min_confidence_tool": {"type": "integer", "minimum": 0, "maximum": 100},
+        "min_conflict_severity": {"type": "integer", "minimum": 0, "maximum": 100}
+      }
+    },
+    "admission_budget": {
+      "type": "object",
+      "required": ["max_allowed", "max_per_category", "max_per_predicate", "max_per_slot"],
+      "properties": {
+        "max_allowed": {"type": "integer", "minimum": 0},
+        "max_per_category": {"type": "integer", "minimum": 0},
+        "max_per_predicate": {"type": "integer", "minimum": 0},
+        "max_per_slot": {"type": "integer", "minimum": 0}
+      }
+    },
+    "allowed_accepted_sources": {"type": "array", "items": {"type": "string"}},
+    "priority": {
+      "type": "object",
+      "required": ["source", "predicate", "modality"],
+      "properties": {
+        "source": {"type": "object"},
+        "predicate": {"type": "object"},
+        "modality": {"type": "object"}
+      }
+    },
+    "constitutional_blocks": {"type": "array", "items": {"type": "string"}}
+  }
+}

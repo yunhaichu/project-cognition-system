@@ -57,6 +57,9 @@ jobs:
       - name: Run forbidden transition evals
         run: python evals/run_forbidden_transition_eval.py
 
+      - name: Run governance policy evals
+        run: python evals/run_governance_policy_eval.py
+
       - name: Build sanitized release package
         run: python scripts/build_package.py --version ci --output-dir /tmp/project-cognition-package
 

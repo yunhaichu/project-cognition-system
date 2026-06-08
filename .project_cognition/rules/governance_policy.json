@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "local_only": true,
+  "llm_used": false,
+  "thresholds": {
+    "min_confidence": 90,
+    "min_confidence_user": 95,
+    "min_confidence_tool": 95,
+    "min_conflict_severity": 60
+  },
+  "admission_budget": {
+    "max_allowed": 80,
+    "max_per_category": 24,
+    "max_per_predicate": 24,
+    "max_per_slot": 1
+  },
+  "allowed_accepted_sources": ["manual_initialization", "bootstrap_rule", "proposed_update"],
+  "priority": {
+    "source": {
+      "user_utterance": 0,
+      "tool_evidence": 1,
+      "proposed_update": 2,
+      "manual_initialization": 3,
+      "bootstrap_rule": 4,
+      "agent_interpretation": 8,
+      "assistant_output": 9
+    },
+    "predicate": {
+      "enter_core_memory": 0,
+      "inject_context": 1,
+      "read_source": 2,
+      "update_world_state": 3,
+      "require_review": 4,
+      "score_evidence": 5,
+      "resolve_conflict": 6,
+      "store_log": 7,
+      "override": 8
+    },
+    "modality": {
+      "must": 0,
+      "must_not": 0,
+      "is": 1,
+      "is_not": 1,
+      "requires": 2,
+      "should": 3,
+      "may": 5,
+      "unknown": 9
+    }
+  },
+  "constitutional_blocks": [
+    "assistant_output_log_only",
+    "agent_only_evidence",
+    "quoted_or_external_user_material_not_core",
+    "blocked_by_unresolved_conflict",
+    "blocked_as_duplicate_candidate",
+    "missing_evidence"
+  ]
+}
