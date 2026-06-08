@@ -53,6 +53,7 @@
     "quoted_or_external_user_material_not_core",
     "blocked_by_unresolved_conflict",
     "blocked_as_duplicate_candidate",
+    "conditional_conflict_block",
     "missing_evidence"
   ]
 }
