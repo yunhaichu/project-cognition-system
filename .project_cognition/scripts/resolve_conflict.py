@@ -40,7 +40,20 @@ def defer_items(items: list[dict[str, Any]], conflict: dict[str, Any]) -> list[d
     return items
 
 
-def resolve(conflict_id: str, action: str, reason: str) -> dict[str, Any]:
+def conditionally_block_items(items: list[dict[str, Any]], conflict: dict[str, Any], condition: str) -> list[dict[str, Any]]:
+    blocked = {str(conflict.get("item_a", "")), str(conflict.get("item_b", ""))}
+    for item in items:
+        if str(item.get("id", "")) in blocked:
+            item["include_in_world_state"] = False
+            item["conditional_conflict_block"] = {
+                "conflict_id": conflict.get("id", ""),
+                "condition": condition,
+                "blocks_world_state": True,
+            }
+    return items
+
+
+def resolve(conflict_id: str, action: str, reason: str, condition: str = "") -> dict[str, Any]:
     conflicts = read_jsonl(CONFLICTS)
     matched: dict[str, Any] | None = None
     for conflict in conflicts:
@@ -53,6 +66,8 @@ def resolve(conflict_id: str, action: str, reason: str) -> dict[str, Any]:
     items = confidence_table_items()
     chosen = ""
     losing = ""
+    resolution_type = "standard"
+    blocks_world_state = False
     if action == "choose-a":
         chosen = str(matched.get("item_a", ""))
         losing = str(matched.get("item_b", ""))
@@ -72,9 +87,24 @@ def resolve(conflict_id: str, action: str, reason: str) -> dict[str, Any]:
         matched["reason"] = reason
         matched["chosen_side"] = ""
         items = defer_items(items, matched)
+        resolution_type = "deferred"
+        blocks_world_state = True
+    elif action == "coexist-by-condition":
+        if not condition:
+            raise SystemExit("--condition is required for coexist-by-condition.")
+        matched["resolution"] = "resolved"
+        matched["resolution_type"] = "coexist_by_condition"
+        matched["condition"] = condition
+        matched["blocks_world_state"] = True
+        matched["chosen_side"] = ""
+        matched["reason"] = reason
+        items = conditionally_block_items(items, matched, condition)
+        resolution_type = "coexist_by_condition"
+        blocks_world_state = True
     else:
         matched["resolution"] = "resolved"
         matched["reason"] = reason
+        matched.setdefault("chosen_side", "")
 
     matched["resolved_at"] = now_iso()
     item_by_id = {item.get("id"): item for item in items}
@@ -84,11 +114,15 @@ def resolve(conflict_id: str, action: str, reason: str) -> dict[str, Any]:
         "chosen": chosen,
         "loser": losing,
         "supersedes": item_by_id.get(chosen, {}).get("structured", {}).get("supersedes", []) if chosen else [],
+        "condition": condition,
+        "resolution_type": resolution_type,
+        "blocks_world_state": blocks_world_state,
         "blocked_status": {
             item_id: {
                 "status": item_by_id.get(item_id, {}).get("status"),
                 "include_in_world_state": bool(item_by_id.get(item_id, {}).get("include_in_world_state")),
                 "superseded_by": item_by_id.get(item_id, {}).get("superseded_by", ""),
+                "conditional_conflict_block": item_by_id.get(item_id, {}).get("conditional_conflict_block", {}),
             }
             for item_id in blocked_ids
             if item_id
@@ -103,8 +137,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Resolve or defer a recorded cognition conflict without silently overwriting evidence.")
     parser.add_argument("--list-unresolved", action="store_true", help="List unresolved or deferred high-severity conflicts.")
     parser.add_argument("--conflict-id", help="Conflict id to resolve.")
-    parser.add_argument("--action", choices=["choose-a", "choose-b", "defer", "mark-resolved"], help="Conflict resolution action.")
+    parser.add_argument("--action", choices=["choose-a", "choose-b", "defer", "mark-resolved", "coexist-by-condition"], help="Conflict resolution action.")
     parser.add_argument("--reason", default="", help="Resolution reason.")
+    parser.add_argument("--condition", default="", help="Condition required for coexist-by-condition, for example only_when_user_explicitly_requests.")
     args = parser.parse_args()
 
     if args.list_unresolved:
@@ -113,9 +148,11 @@ def main() -> None:
     if not args.conflict_id or not args.action:
         raise SystemExit("--conflict-id and --action are required unless --list-unresolved is used.")
     if args.action != "mark-resolved" and not args.reason:
-        raise SystemExit("--reason is required for choose-a, choose-b, and defer.")
+        raise SystemExit("--reason is required for choose-a, choose-b, defer, and coexist-by-condition.")
+    if args.action == "coexist-by-condition" and not args.condition:
+        raise SystemExit("--condition is required for coexist-by-condition.")
 
-    reviewed = resolve(args.conflict_id, args.action, args.reason)
+    reviewed = resolve(args.conflict_id, args.action, args.reason, args.condition)
     print(json.dumps(reviewed, ensure_ascii=False, indent=2))
 
 

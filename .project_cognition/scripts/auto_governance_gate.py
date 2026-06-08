@@ -68,6 +68,7 @@ DEFAULT_POLICY: dict[str, Any] = {
         "quoted_or_external_user_material_not_core",
         "blocked_by_unresolved_conflict",
         "blocked_as_duplicate_candidate",
+        "conditional_conflict_block",
         "missing_evidence",
     ],
 }
@@ -140,6 +141,11 @@ def allowed_accepted_sources(policy: dict[str, Any]) -> set[str]:
     return {str(value) for value in policy.get("allowed_accepted_sources", [])}
 
 
+def non_overridable_blocks(policy: dict[str, Any]) -> set[str]:
+    # Accepted stable-source items may still be admitted without evidence, so missing_evidence remains overridable.
+    return {str(value) for value in policy.get("constitutional_blocks", [])} - {"missing_evidence"}
+
+
 def unresolved_blocked_ids(min_severity: int) -> set[str]:
     blocked: set[str] = set()
     for conflict in read_jsonl(CONFLICTS):
@@ -164,6 +170,7 @@ def evidence_flags(item: dict[str, Any]) -> dict[str, bool]:
     source_type = str(item.get("source_type", ""))
     score_signals = set(str(value) for value in item.get("score_signals", []))
     utterance_intents = set(str(value) for value in item.get("utterance_intents", []))
+    conditional = item.get("conditional_conflict_block", {})
     return {
         "has_user_evidence": "user_utterance" in evidence_types or source_type == "user_utterance",
         "has_direct_user_evidence": not utterance_intents or "direct_user_intent" in utterance_intents,
@@ -172,6 +179,7 @@ def evidence_flags(item: dict[str, Any]) -> dict[str, bool]:
         "has_agent_evidence": "agent_interpretation" in evidence_types or source_type == "agent_interpretation",
         "has_assistant_output": source_type == "assistant_output",
         "has_deterministic_tool_evidence": bool(score_signals & {"tool_test_result", "tool_git_result", "tool_filesystem_result", "tool_deterministic"}),
+        "has_conditional_conflict_block": isinstance(conditional, dict) and bool(conditional.get("blocks_world_state")),
     }
 
 
@@ -271,6 +279,9 @@ def decision_for_item(
     if item_id in blocked_duplicates:
         allowed = False
         reasons.append("blocked_as_duplicate_candidate")
+    if flags["has_conditional_conflict_block"]:
+        allowed = False
+        reasons.append("conditional_conflict_block")
     if flags["has_assistant_output"]:
         allowed = False
         reasons.append("assistant_output_log_only")
@@ -293,8 +304,9 @@ def decision_for_item(
         allowed = False
         reasons.append(f"confidence_below_{threshold}")
 
+    protected_reasons = non_overridable_blocks(policy)
     if source_type in allowed_accepted_sources(policy) and status == "accepted" and confidence >= min_confidence:
-        if not (item_id in blocked_by_conflict or item_id in blocked_duplicates):
+        if not (item_id in blocked_by_conflict or item_id in blocked_duplicates or (set(reasons) & protected_reasons)):
             allowed = True
             reasons = [reason for reason in reasons if not reason.startswith("confidence_below_") and reason != "missing_evidence"]
             reasons.append("accepted_stable_source")
@@ -321,6 +333,7 @@ def decision_for_item(
         "status": status,
         "source_type": source_type,
         "evidence_types": sorted(str(value) for value in item.get("evidence_types", [])),
+        "conditional_conflict_block": item.get("conditional_conflict_block", {}),
     }
 
 
