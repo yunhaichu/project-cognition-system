@@ -37,6 +37,7 @@ PROJECT_COGNITION_FILES = {
 }
 
 PROJECT_COGNITION_DIRS = {
+    ".project_cognition/rules",
     ".project_cognition/scripts",
     ".project_cognition/schemas",
 }
@@ -45,6 +46,8 @@ RAW_PLACEHOLDERS = {
     ".project_cognition/raw/agent_interpretations.jsonl",
     ".project_cognition/raw/conflicts.jsonl",
     ".project_cognition/raw/decisions.jsonl",
+    ".project_cognition/raw/feedback_events.jsonl",
+    ".project_cognition/raw/rule_change_log.jsonl",
     ".project_cognition/raw/tool_evidence.jsonl",
     ".project_cognition/raw/user_utterances.jsonl",
     ".project_cognition/raw/sessions/.gitkeep",
@@ -53,6 +56,7 @@ RAW_PLACEHOLDERS = {
 PROPOSAL_PLACEHOLDERS = {
     ".project_cognition/proposals/proposed_updates.jsonl",
     ".project_cognition/proposals/proposed_updates.md",
+    ".project_cognition/proposals/rule_change_proposals.jsonl",
 }
 
 DISTILLED_RELEASE_FILES = {
@@ -89,6 +93,7 @@ EXCLUDED_SUFFIXES = {
 
 GENERATED_COGNITION_PREFIXES = {
     ".project_cognition/index/",
+    ".project_cognition/distilled/rule_change_simulation_",
 }
 
 GENERATED_COGNITION_FILES = {
@@ -96,6 +101,7 @@ GENERATED_COGNITION_FILES = {
     ".project_cognition/distilled/conflict_clusters.json",
     ".project_cognition/distilled/governance_gate.json",
     ".project_cognition/distilled/scoring_feedback.jsonl",
+    ".project_cognition/distilled/scoring_weight_shadow_report.json",
 }
 
 
@@ -164,7 +170,7 @@ def iter_release_files(root: Path) -> list[str]:
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        for chunk in iter(lambda: handle.read(1024 * 1024), b=""):
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -206,7 +212,7 @@ def archive_manifest(root: Path, version: str, files: list[str]) -> dict[str, ob
         "local_only": True,
         "llm_used": False,
         "license": "PolyForm Noncommercial License 1.0.0",
-        "privacy": "sanitized release package; private raw evidence, logs, generated indexes, and generated clusters are excluded",
+        "privacy": "sanitized release package; private raw evidence, logs, generated indexes, generated reports, and generated clusters are excluded",
         "file_count": len(entries),
         "files": entries,
     }
