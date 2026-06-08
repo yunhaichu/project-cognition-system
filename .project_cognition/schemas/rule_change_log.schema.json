@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuleChangeLog",
+  "type": "object",
+  "required": ["id", "timestamp", "proposal_id", "change_type", "target_path", "before_hash", "after_hash", "changed_fields", "simulation_report_id", "eval_passed", "drift_report_ok", "applied_by", "rollback_ref"],
+  "properties": {
+    "id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "proposal_id": {"type": "string"},
+    "change_type": {"type": "string"},
+    "target_path": {"type": "string"},
+    "before_hash": {"type": "string"},
+    "after_hash": {"type": "string"},
+    "changed_fields": {"type": "object"},
+    "simulation_report_id": {"type": "string"},
+    "eval_passed": {"type": "boolean"},
+    "drift_report_ok": {"type": "boolean"},
+    "applied_by": {"type": "string"},
+    "rollback_ref": {"type": "string"}
+  }
+}
