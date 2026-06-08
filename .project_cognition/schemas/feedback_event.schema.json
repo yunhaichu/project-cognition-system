@@ -1,3 +1,47 @@
 {
-  "type": "object"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FeedbackEvent",
+  "type": "object",
+  "required": [
+    "id",
+    "timestamp",
+    "event_family",
+    "event_name",
+    "target_type",
+    "target_id",
+    "outcome",
+    "severity",
+    "source_type",
+    "source_refs",
+    "confidence",
+    "notes"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "session_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "event_family": {
+      "type": "string",
+      "enum": ["outcome", "correction", "drift", "retrieval", "rule", "gate", "conflict", "test"]
+    },
+    "event_name": {"type": "string"},
+    "target_type": {
+      "type": "string",
+      "enum": ["cognition", "rule", "conflict", "gate_decision", "world_state", "retrieval", "context_injection", "test", "tool_evidence", "user_utterance"]
+    },
+    "target_id": {"type": "string"},
+    "outcome": {
+      "type": "string",
+      "enum": ["positive", "negative", "neutral", "unknown"]
+    },
+    "severity": {"type": "integer", "minimum": 0, "maximum": 100},
+    "source_type": {
+      "type": "string",
+      "enum": ["user_utterance", "deterministic_tool", "manual_review", "agent_self_report", "tool_evidence"]
+    },
+    "source_refs": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+    "notes": {"type": "string"}
+  }
 }

@@ -11,6 +11,10 @@ from common import append_jsonl, make_id, now_iso, parse_csv_values
 
 COGNITION_ROOT = Path(__file__).resolve().parents[1]
 FEEDBACK_EVENTS = COGNITION_ROOT / "raw" / "feedback_events.jsonl"
+EVENT_FAMILIES = ["outcome", "correction", "drift", "retrieval", "rule", "gate", "conflict", "test"]
+TARGET_TYPES = ["cognition", "rule", "conflict", "gate_decision", "world_state", "retrieval", "context_injection", "test", "tool_evidence", "user_utterance"]
+SOURCE_TYPES = ["user_utterance", "deterministic_tool", "manual_review", "agent_self_report", "tool_evidence"]
+OUTCOMES = ["positive", "negative", "neutral", "unknown"]
 
 
 def create_event(args: argparse.Namespace) -> dict[str, Any]:
@@ -41,13 +45,13 @@ def main() -> None:
     parser.add_argument("--session-id", default="")
     parser.add_argument("--task-id", default="")
     parser.add_argument("--timestamp")
-    parser.add_argument("--event-family", required=True)
-    parser.add_argument("--event-name", required=True)
-    parser.add_argument("--target-type", required=True)
+    parser.add_argument("--event-family", required=True, choices=EVENT_FAMILIES)
+    parser.add_argument("--event-name", required=True, help="Open event name, for example user_correction or false_accept.")
+    parser.add_argument("--target-type", required=True, choices=TARGET_TYPES)
     parser.add_argument("--target-id", required=True)
-    parser.add_argument("--outcome", required=True, choices=["positive", "negative", "neutral", "unknown"])
+    parser.add_argument("--outcome", required=True, choices=OUTCOMES)
     parser.add_argument("--severity", type=int, default=0, choices=range(0, 101), metavar="[0-100]")
-    parser.add_argument("--source-type", required=True)
+    parser.add_argument("--source-type", required=True, choices=SOURCE_TYPES)
     parser.add_argument("--source-ref", action="append")
     parser.add_argument("--confidence", type=int, default=100, choices=range(0, 101), metavar="[0-100]")
     parser.add_argument("--notes", default="")
