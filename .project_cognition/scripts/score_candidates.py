@@ -72,6 +72,22 @@ def evidence_indexes() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, A
     return utterances, interpretations, tool_evidence, unresolved_conflicts
 
 
+def has_conditional_world_state_block(item: dict[str, Any]) -> bool:
+    block = item.get("conditional_conflict_block", {})
+    return isinstance(block, dict) and bool(block.get("blocks_world_state"))
+
+
+def apply_conditional_world_state_block(item: dict[str, Any]) -> dict[str, Any]:
+    if has_conditional_world_state_block(item):
+        item["include_in_world_state"] = False
+        item["requires_governance_gate_for_world_state"] = True
+        item["requires_review_for_world_state"] = True
+        signals = set(str(value) for value in item.get("score_signals", []))
+        signals.add("conditional_conflict_block")
+        item["score_signals"] = sorted(signals)
+    return item
+
+
 def score_item(
     item: dict[str, Any],
     utterances: dict[str, dict[str, Any]],
@@ -86,14 +102,14 @@ def score_item(
     if item.get("source_type") == "bootstrap_rule" and item.get("status") == "accepted":
         confidence = int(item.get("confidence", 0))
         item["include_in_world_state"] = confidence >= 90 and not any(conflict in unresolved_conflicts for conflict in item.get("conflicts", []))
-        return item
+        return apply_conditional_world_state_block(item)
     if item.get("source_type") == "manual_initialization" and int(item.get("confidence", 0)) >= 90:
         item["include_in_world_state"] = not any(conflict in unresolved_conflicts for conflict in item.get("conflicts", []))
-        return item
+        return apply_conditional_world_state_block(item)
     if item.get("source_type") == "proposed_update" and item.get("status") == "accepted":
         confidence = int(item.get("confidence", 0))
         item["include_in_world_state"] = confidence >= 90 and not any(conflict in unresolved_conflicts for conflict in item.get("conflicts", []))
-        return item
+        return apply_conditional_world_state_block(item)
 
     signal_weights = weights["signal_weights"]
     points = 0.0
@@ -204,7 +220,6 @@ def score_item(
         or (confidence >= int(weights["min_world_confidence"]) and not accepted_for_world_state)
     )
     item["requires_governance_gate_for_world_state"] = requires_governance_gate
-    # Backward-compatible field name for older state files and external tooling.
     item["requires_review_for_world_state"] = requires_governance_gate
     item["include_in_world_state"] = (
         accepted_for_world_state
@@ -219,7 +234,7 @@ def score_item(
     if item.get("status") not in {"accepted", "rejected"}:
         item["status"] = "candidate"
     item["score_signals"] = sorted(set(matched_signals))
-    return item
+    return apply_conditional_world_state_block(item)
 
 
 def main() -> None:
@@ -235,6 +250,7 @@ def main() -> None:
             item["include_in_world_state"] = False
         if re.search(r"无证据|没有证据", str(item.get("claim", ""))):
             item["include_in_world_state"] = False
+        item = apply_conditional_world_state_block(item)
     save_confidence_table(scored)
 
     summary = {
