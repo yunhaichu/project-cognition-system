@@ -12,6 +12,9 @@
     "description": {"type": "string"},
     "severity": {"type": "integer", "minimum": 0, "maximum": 100},
     "resolution": {"type": "string", "enum": ["unresolved", "resolved", "deferred"]},
+    "resolution_type": {"type": "string", "enum": ["standard", "deferred", "coexist_by_condition"]},
+    "condition": {"type": "string"},
+    "blocks_world_state": {"type": "boolean"},
     "chosen_side": {"type": "string"},
     "reason": {"type": "string"},
     "resolved_at": {"type": "string"},
@@ -22,6 +25,9 @@
         "chosen": {"type": "string"},
         "loser": {"type": "string"},
         "supersedes": {"type": "array", "items": {"type": "string"}},
+        "condition": {"type": "string"},
+        "resolution_type": {"type": "string"},
+        "blocks_world_state": {"type": "boolean"},
         "blocked_status": {"type": "object"}
       }
     }
