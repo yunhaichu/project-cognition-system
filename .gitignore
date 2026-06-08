@@ -12,6 +12,7 @@ dist/
 .project_cognition/logs/**/*.jsonl
 .project_cognition/proposals/*.jsonl
 .project_cognition/distilled/scoring_feedback.jsonl
+.project_cognition/distilled/scoring_weight_shadow_report.json
 .project_cognition/distilled/conflict_clusters.json
 .project_cognition/distilled/candidate_clusters.json
 .project_cognition/distilled/governance_gate.json
@@ -23,5 +24,6 @@ dist/
 !.project_cognition/raw/tool_evidence.jsonl
 !.project_cognition/raw/decisions.jsonl
 !.project_cognition/raw/conflicts.jsonl
+!.project_cognition/raw/feedback_events.jsonl
 !.project_cognition/proposals/proposed_updates.jsonl
 !.project_cognition/**/.gitkeep

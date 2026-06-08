@@ -48,6 +48,9 @@ jobs:
       - name: Run feedback evals
         run: python evals/run_feedback_eval.py
 
+      - name: Run scoring weight evals
+        run: python evals/run_scoring_weight_eval.py
+
       - name: Build sanitized release package
         run: python scripts/build_package.py --version ci --output-dir /tmp/project-cognition-package
 
