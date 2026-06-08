@@ -10,6 +10,7 @@ dist/
 .project_cognition/raw/sessions/*.json
 .project_cognition/logs/**/*.json
 .project_cognition/logs/**/*.jsonl
+.project_cognition/proposals/*.json
 .project_cognition/proposals/*.jsonl
 .project_cognition/distilled/scoring_feedback.jsonl
 .project_cognition/distilled/scoring_weight_shadow_report.json
