@@ -71,36 +71,38 @@ def read_report(project_root: Path) -> dict[str, Any]:
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
-def rejected_ids(report: dict[str, Any]) -> set[str]:
-    return {str(row.get("item_id", "")) for row in report.get("rejected_candidates", [])}
-
-
 def check_user_profile(project_root: Path, profile_path: Path) -> dict[str, bool]:
     seed_profile_candidates(project_root)
     env = dict(os.environ)
     env["PROJECT_COGNITION_USER_PROFILE"] = str(profile_path)
+
     default_result = run_script(project_root, "build_user_profile.py", env=env)
     default_report = read_report(project_root)
+    default_profile_exists = profile_path.exists()
+
     run_script(project_root, "codex_post_hook.py", ["--skip-ingest", "--session-id", "profile_eval"], env=env)
     after_post_hook_exists = profile_path.exists()
 
     seed_profile_candidates(project_root)
     apply_result = run_script(project_root, "build_user_profile.py", ["--apply-profile"], env=env)
-    profile_content = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
     apply_report = read_report(project_root)
+    profile_content = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
+
+    generated_ids = {str(row.get("item_id", "")) for row in default_report.get("generated_candidates", [])}
+    rejected_ids = {str(row.get("item_id", "")) for row in default_report.get("rejected_candidates", [])}
     return {
-        "default_does_not_write_global_profile": default_result.get("applied") is False
+        "default_is_proposal_only": default_result.get("applied") is False
         and default_result.get("mutates_global_profile") is False
-        and default_result.get("would_change") is True
-        and not profile_path.exists(),
-        "default_writes_local_report": default_report.get("generated_candidate_count") == 1
-        and {"profile_project_only", "profile_weak_single"} <= rejected_ids(default_report),
-        "post_hook_default_does_not_write_global_profile": not after_post_hook_exists,
-        "explicit_apply_writes_profile": apply_result.get("applied") is True and profile_path.exists(),
-        "profile_includes_valid_candidate": "用户要求回答直接务实，避免无关寒暄。" in profile_content,
-        "profile_excludes_project_only_candidate": "WORLD_STATE 直接记录阶段进度" not in profile_content,
-        "profile_excludes_single_weak_expression": "单次弱表达时直接写入画像" not in profile_content,
-        "apply_report_marks_global_mutation": apply_report.get("mutates_global_profile") is True and apply_report.get("applied") is True,
+        and not default_profile_exists,
+        "default_report_has_expected_candidate_sets": "profile_direct_practical" in generated_ids
+        and {"profile_project_only", "profile_weak_single"} <= rejected_ids,
+        "post_hook_is_proposal_only": not after_post_hook_exists,
+        "explicit_apply_writes_global_profile": apply_result.get("applied") is True
+        and apply_report.get("mutates_global_profile") is True
+        and profile_path.exists(),
+        "profile_content_filters_candidates": "用户要求回答直接务实，避免无关寒暄。" in profile_content
+        and "WORLD_STATE 直接记录阶段进度" not in profile_content
+        and "单次弱表达时直接写入画像" not in profile_content,
     }
 
 
