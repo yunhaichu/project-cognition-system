@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuleChangeProposal",
+  "type": "object",
+  "required": ["id", "timestamp", "change_type", "target_path", "reason", "evidence", "before_hash", "proposed_after_hash", "patch_summary", "risk_level", "status", "requires_explicit_apply"],
+  "properties": {
+    "id": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "change_type": {"type": "string", "enum": ["scoring_weight_update", "governance_policy_update", "predicate_rule_update", "object_canonicalization_update", "bootstrap_doctrine_update", "context_selection_policy_update"]},
+    "target_path": {"type": "string"},
+    "reason": {"type": "string"},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+    "before_hash": {"type": "string"},
+    "proposed_after_hash": {"type": "string"},
+    "patch_summary": {"type": "string"},
+    "risk_level": {"type": "string", "enum": ["low", "medium", "high", "constitutional"]},
+    "status": {"type": "string", "enum": ["pending", "simulated", "accepted", "rejected", "applied", "superseded"]},
+    "requires_explicit_apply": {"type": "boolean"},
+    "simulation_report_id": {"type": "string"},
+    "simulation_report_path": {"type": "string"},
+    "hard_failures": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "simulated_at": {"type": "string"},
+    "applied_at": {"type": "string"}
+  }
+}
