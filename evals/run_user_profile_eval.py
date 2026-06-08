@@ -19,10 +19,6 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def make_project_copy(temp_dir: str) -> Path:
     project_root = Path(temp_dir) / "project"
     shutil.copytree(REPO_ROOT / ".project_cognition", project_root / ".project_cognition", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -51,7 +47,7 @@ def profile_item(item_id: str, claim: str, *, confidence: int = 98, stability: s
         "last_verified": "2026-06-08T00:00:00Z",
         "stability": stability,
         "include_in_world_state": False,
-        "source_type": "user_utterance",
+        "source_type": "manual_initialization",
         "status": "accepted",
     }
 
@@ -70,26 +66,32 @@ def seed_profile_candidates(project_root: Path) -> None:
     )
 
 
+def read_report(project_root: Path) -> dict[str, Any]:
+    report_path = project_root / ".project_cognition" / "proposals" / "user_profile_update_report.json"
+    return json.loads(report_path.read_text(encoding="utf-8"))
+
+
 def check_user_profile(project_root: Path, profile_path: Path) -> dict[str, bool]:
     seed_profile_candidates(project_root)
     env = dict(os.environ)
     env["PROJECT_COGNITION_USER_PROFILE"] = str(profile_path)
     default_result = run_script(project_root, "build_user_profile.py", env=env)
-    report_path = project_root / ".project_cognition" / "proposals" / "user_profile_update_report.json"
-    default_report = read_json(report_path)
+    default_report = read_report(project_root)
     post_hook_result = run_script(project_root, "codex_post_hook.py", ["--skip-ingest", "--session-id", "profile_eval"], env=env)
     post_hook_step = {row.get("script"): row for row in post_hook_result.get("steps", [])}.get("build_user_profile.py", {})
     after_post_hook_exists = profile_path.exists()
+
+    # The post-hook intentionally runs scoring and extraction, so rebuild the fixture before testing explicit global apply.
+    seed_profile_candidates(project_root)
     apply_result = run_script(project_root, "build_user_profile.py", ["--apply-profile"], env=env)
     profile_content = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
-    apply_report = read_json(report_path)
+    apply_report = read_report(project_root)
     return {
         "default_does_not_write_global_profile": default_result.get("applied") is False
         and default_result.get("mutates_global_profile") is False
         and default_result.get("would_change") is True
         and not profile_path.exists(),
-        "default_writes_local_report": report_path.exists()
-        and default_report.get("generated_candidate_count") == 1
+        "default_writes_local_report": default_report.get("generated_candidate_count") == 1
         and default_report.get("rejected_reason_counts", {}).get("project_only") == 1
         and default_report.get("rejected_reason_counts", {}).get("unstable_single_evidence") == 1,
         "post_hook_default_does_not_write_global_profile": post_hook_step.get("stdout", {}).get("applied") is False and not after_post_hook_exists,
