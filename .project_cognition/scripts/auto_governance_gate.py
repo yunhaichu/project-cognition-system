@@ -2,44 +2,142 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
-from common import CANDIDATE_CLUSTERS, CONFLICTS, GOVERNANCE_GATE, confidence_table_items, normalize_text, now_iso, read_json, read_jsonl, write_json
+from common import CANDIDATE_CLUSTERS, COGNITION_ROOT, CONFLICTS, GOVERNANCE_GATE, confidence_table_items, normalize_text, now_iso, read_json, read_jsonl, write_json
 
 
-ALLOWED_ACCEPTED_SOURCES = {"manual_initialization", "bootstrap_rule", "proposed_update"}
-DETERMINISTIC_TOOL_KINDS = {"test_result", "git_result", "filesystem_result"}
-SOURCE_PRIORITY = {
-    "user_utterance": 0,
-    "tool_evidence": 1,
-    "proposed_update": 2,
-    "manual_initialization": 3,
-    "bootstrap_rule": 4,
-    "agent_interpretation": 8,
-    "assistant_output": 9,
+PROJECT_ROOT = COGNITION_ROOT.parent
+GOVERNANCE_POLICY = COGNITION_ROOT / "rules" / "governance_policy.json"
+
+DEFAULT_POLICY: dict[str, Any] = {
+    "version": 1,
+    "local_only": True,
+    "llm_used": False,
+    "thresholds": {
+        "min_confidence": 90,
+        "min_confidence_user": 95,
+        "min_confidence_tool": 95,
+        "min_conflict_severity": 60,
+    },
+    "admission_budget": {
+        "max_allowed": 80,
+        "max_per_category": 24,
+        "max_per_predicate": 24,
+        "max_per_slot": 1,
+    },
+    "allowed_accepted_sources": ["manual_initialization", "bootstrap_rule", "proposed_update"],
+    "priority": {
+        "source": {
+            "user_utterance": 0,
+            "tool_evidence": 1,
+            "proposed_update": 2,
+            "manual_initialization": 3,
+            "bootstrap_rule": 4,
+            "agent_interpretation": 8,
+            "assistant_output": 9,
+        },
+        "predicate": {
+            "enter_core_memory": 0,
+            "inject_context": 1,
+            "read_source": 2,
+            "update_world_state": 3,
+            "require_review": 4,
+            "score_evidence": 5,
+            "resolve_conflict": 6,
+            "store_log": 7,
+            "override": 8,
+        },
+        "modality": {
+            "must": 0,
+            "must_not": 0,
+            "is": 1,
+            "is_not": 1,
+            "requires": 2,
+            "should": 3,
+            "may": 5,
+            "unknown": 9,
+        },
+    },
+    "constitutional_blocks": [
+        "assistant_output_log_only",
+        "agent_only_evidence",
+        "quoted_or_external_user_material_not_core",
+        "blocked_by_unresolved_conflict",
+        "blocked_as_duplicate_candidate",
+        "missing_evidence",
+    ],
 }
-PREDICATE_PRIORITY = {
-    "enter_core_memory": 0,
-    "inject_context": 1,
-    "read_source": 2,
-    "update_world_state": 3,
-    "require_review": 4,
-    "score_evidence": 5,
-    "resolve_conflict": 6,
-    "store_log": 7,
-    "override": 8,
-}
-MODALITY_PRIORITY = {
-    "must": 0,
-    "must_not": 0,
-    "is": 1,
-    "is_not": 1,
-    "requires": 2,
-    "should": 3,
-    "may": 5,
-    "unknown": 9,
-}
+
+
+def deep_copy(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def resolve_policy_path(policy_path: str | None = None) -> Path:
+    if not policy_path:
+        return GOVERNANCE_POLICY
+    candidate = Path(policy_path).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return PROJECT_ROOT / candidate
+
+
+def merge_policy(data: dict[str, Any]) -> dict[str, Any]:
+    merged = deep_copy(DEFAULT_POLICY)
+    for key, value in data.items():
+        if key not in {"thresholds", "admission_budget", "priority"}:
+            merged[key] = value
+    merged["thresholds"].update(data.get("thresholds", {}))
+    merged["admission_budget"].update(data.get("admission_budget", {}))
+    priority = data.get("priority", {})
+    for key in ["source", "predicate", "modality"]:
+        merged["priority"][key].update(priority.get(key, {}))
+    return merged
+
+
+def load_policy(policy_path: str | None = None) -> tuple[dict[str, Any], Path]:
+    path = resolve_policy_path(policy_path)
+    data = read_json(path, {}) if path.exists() else {}
+    return merge_policy(data), path
+
+
+def policy_hash(policy: dict[str, Any]) -> str:
+    data = json.dumps(policy, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def relative_to_project(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(PROJECT_ROOT.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def apply_policy_overrides(policy: dict[str, Any], overrides: dict[str, int | None]) -> dict[str, Any]:
+    result = deep_copy(policy)
+    threshold_keys = {"min_confidence", "min_confidence_user", "min_confidence_tool", "min_conflict_severity"}
+    budget_keys = {"max_allowed", "max_per_category", "max_per_predicate", "max_per_slot"}
+    for key, value in overrides.items():
+        if value is None:
+            continue
+        if key in threshold_keys:
+            result["thresholds"][key] = int(value)
+        elif key in budget_keys:
+            result["admission_budget"][key] = int(value)
+    return result
+
+
+def policy_priority(policy: dict[str, Any], group: str) -> dict[str, Any]:
+    value = policy.get("priority", {}).get(group, {})
+    return value if isinstance(value, dict) else {}
+
+
+def allowed_accepted_sources(policy: dict[str, Any]) -> set[str]:
+    return {str(value) for value in policy.get("allowed_accepted_sources", [])}
 
 
 def unresolved_blocked_ids(min_severity: int) -> set[str]:
@@ -82,12 +180,13 @@ def structured(item: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def source_rank(item: dict[str, Any], flags: dict[str, bool]) -> int:
+def source_rank(item: dict[str, Any], flags: dict[str, bool], policy: dict[str, Any]) -> int:
+    source_priority = policy_priority(policy, "source")
     if flags["has_user_evidence"]:
-        return SOURCE_PRIORITY["user_utterance"]
+        return int(source_priority.get("user_utterance", 0))
     if flags["has_tool_evidence"]:
-        return SOURCE_PRIORITY["tool_evidence"]
-    return SOURCE_PRIORITY.get(str(item.get("source_type", "")), 7)
+        return int(source_priority.get("tool_evidence", 1))
+    return int(source_priority.get(str(item.get("source_type", "")), 7))
 
 
 def governance_slot(item: dict[str, Any]) -> str:
@@ -112,14 +211,14 @@ def predicate_key(item: dict[str, Any]) -> str:
     return str(structured(item).get("predicate") or "states")
 
 
-def item_priority_score(item: dict[str, Any], flags: dict[str, bool]) -> int:
+def item_priority_score(item: dict[str, Any], flags: dict[str, bool], policy: dict[str, Any]) -> int:
     row = structured(item)
     score = int(item.get("confidence", 0)) * 10
-    rank = source_rank(item, flags)
+    rank = source_rank(item, flags, policy)
     score += max(0, 90 - rank * 12)
     if item.get("status") == "accepted":
         score += 45
-    if str(item.get("source_type", "")) in ALLOWED_ACCEPTED_SOURCES:
+    if str(item.get("source_type", "")) in allowed_accepted_sources(policy):
         score += 30
     if flags["has_user_evidence"]:
         score += 80
@@ -128,9 +227,11 @@ def item_priority_score(item: dict[str, Any], flags: dict[str, bool]) -> int:
     if str(row.get("scope") or "project") == "project":
         score += 18
     predicate = str(row.get("predicate") or "states")
-    score += max(0, 35 - PREDICATE_PRIORITY.get(predicate, 12) * 3)
+    predicate_priority = policy_priority(policy, "predicate")
+    score += max(0, 35 - int(predicate_priority.get(predicate, 12)) * 3)
     modality = str(row.get("modality") or "unknown")
-    score += max(0, 25 - MODALITY_PRIORITY.get(modality, 9) * 3)
+    modality_priority = policy_priority(policy, "modality")
+    score += max(0, 25 - int(modality_priority.get(modality, 9)) * 3)
     score += min(len(item.get("evidence", [])), 4) * 6
     object_key = str(row.get("object_key") or "")
     if object_key in {"unknown", ""}:
@@ -146,6 +247,7 @@ def item_priority_score(item: dict[str, Any], flags: dict[str, bool]) -> int:
 def decision_for_item(
     item: dict[str, Any],
     *,
+    policy: dict[str, Any],
     min_confidence: int,
     min_confidence_user: int,
     min_confidence_tool: int,
@@ -191,7 +293,7 @@ def decision_for_item(
         allowed = False
         reasons.append(f"confidence_below_{threshold}")
 
-    if source_type in ALLOWED_ACCEPTED_SOURCES and status == "accepted" and confidence >= min_confidence:
+    if source_type in allowed_accepted_sources(policy) and status == "accepted" and confidence >= min_confidence:
         if not (item_id in blocked_by_conflict or item_id in blocked_duplicates):
             allowed = True
             reasons = [reason for reason in reasons if not reason.startswith("confidence_below_") and reason != "missing_evidence"]
@@ -211,7 +313,7 @@ def decision_for_item(
         "id": item_id,
         "allowed": bool(allowed),
         "reasons": sorted(set(reasons)),
-        "priority_score": item_priority_score(item, flags),
+        "priority_score": item_priority_score(item, flags, policy),
         "governance_slot": governance_slot(item),
         "category": category_key(item),
         "predicate": predicate_key(item),
@@ -232,30 +334,13 @@ def apply_admission_budget(
     max_per_slot: int,
 ) -> dict[str, Any]:
     allowed_rows = [row for row in decisions if row.get("allowed")]
-    ranked = sorted(
-        allowed_rows,
-        key=lambda row: (
-            -int(row.get("priority_score", 0)),
-            -int(row.get("confidence", 0)),
-            str(row.get("id", "")),
-        ),
-    )
+    ranked = sorted(allowed_rows, key=lambda row: (-int(row.get("priority_score", 0)), -int(row.get("confidence", 0)), str(row.get("id", ""))))
     category_counts: dict[str, int] = {}
     predicate_counts: dict[str, int] = {}
     slot_counts: dict[str, int] = {}
     kept: set[str] = set()
-    budget_blocked: dict[str, list[str]] = {
-        "max_allowed": [],
-        "max_per_category": [],
-        "max_per_predicate": [],
-        "max_per_slot": [],
-    }
-    positive_reasons = {
-        "accepted_stable_source",
-        "deterministic_tool_evidence_auto_allowed",
-        "governance_gate_allowed",
-        "user_evidence_auto_allowed",
-    }
+    budget_blocked: dict[str, list[str]] = {"max_allowed": [], "max_per_category": [], "max_per_predicate": [], "max_per_slot": []}
+    positive_reasons = {"accepted_stable_source", "deterministic_tool_evidence_auto_allowed", "governance_gate_allowed", "user_evidence_auto_allowed"}
 
     for row in ranked:
         item_id = str(row.get("id", ""))
@@ -296,25 +381,43 @@ def apply_admission_budget(
 
 def build_gate(
     *,
-    min_confidence: int = 90,
-    min_confidence_user: int = 95,
-    min_confidence_tool: int = 95,
-    min_conflict_severity: int = 60,
-    max_allowed: int = 80,
-    max_per_category: int = 24,
-    max_per_predicate: int = 24,
-    max_per_slot: int = 1,
+    policy_path: str | None = None,
+    min_confidence: int | None = None,
+    min_confidence_user: int | None = None,
+    min_confidence_tool: int | None = None,
+    min_conflict_severity: int | None = None,
+    max_allowed: int | None = None,
+    max_per_category: int | None = None,
+    max_per_predicate: int | None = None,
+    max_per_slot: int | None = None,
 ) -> dict[str, Any]:
-    blocked_by_conflict = unresolved_blocked_ids(min_conflict_severity)
+    loaded_policy, loaded_policy_path = load_policy(policy_path)
+    policy = apply_policy_overrides(
+        loaded_policy,
+        {
+            "min_confidence": min_confidence,
+            "min_confidence_user": min_confidence_user,
+            "min_confidence_tool": min_confidence_tool,
+            "min_conflict_severity": min_conflict_severity,
+            "max_allowed": max_allowed,
+            "max_per_category": max_per_category,
+            "max_per_predicate": max_per_predicate,
+            "max_per_slot": max_per_slot,
+        },
+    )
+    thresholds = policy["thresholds"]
+    budget_policy = policy["admission_budget"]
+    blocked_by_conflict = unresolved_blocked_ids(int(thresholds["min_conflict_severity"]))
     blocked_duplicates = duplicate_blocked_ids()
     items = confidence_table_items()
     items_by_id = {str(item.get("id", "")): item for item in items}
     decisions = [
         decision_for_item(
             item,
-            min_confidence=min_confidence,
-            min_confidence_user=min_confidence_user,
-            min_confidence_tool=min_confidence_tool,
+            policy=policy,
+            min_confidence=int(thresholds["min_confidence"]),
+            min_confidence_user=int(thresholds["min_confidence_user"]),
+            min_confidence_tool=int(thresholds["min_confidence_tool"]),
             blocked_by_conflict=blocked_by_conflict,
             blocked_duplicates=blocked_duplicates,
         )
@@ -323,10 +426,10 @@ def build_gate(
     budget = apply_admission_budget(
         decisions,
         items_by_id,
-        max_allowed=max_allowed,
-        max_per_category=max_per_category,
-        max_per_predicate=max_per_predicate,
-        max_per_slot=max_per_slot,
+        max_allowed=int(budget_policy["max_allowed"]),
+        max_per_category=int(budget_policy["max_per_category"]),
+        max_per_predicate=int(budget_policy["max_per_predicate"]),
+        max_per_slot=int(budget_policy["max_per_slot"]),
     )
     allowed_ids = sorted(row["id"] for row in decisions if row.get("allowed"))
     blocked_rows = [row for row in decisions if not row.get("allowed")]
@@ -334,6 +437,8 @@ def build_gate(
     for row in blocked_rows:
         for reason in row.get("reasons", []):
             blocked_reason_counts[reason] = blocked_reason_counts.get(reason, 0) + 1
+    hash_value = policy_hash(policy)
+    path_value = relative_to_project(loaded_policy_path)
     return {
         "generated_at": now_iso(),
         "item_count": len(decisions),
@@ -344,35 +449,41 @@ def build_gate(
         "blocked_duplicate_ids": sorted(blocked_duplicates),
         "blocked_reason_counts": dict(sorted(blocked_reason_counts.items())),
         "admission_budget": {
-            "max_allowed": max_allowed,
-            "max_per_category": max_per_category,
-            "max_per_predicate": max_per_predicate,
-            "max_per_slot": max_per_slot,
+            "max_allowed": int(budget_policy["max_allowed"]),
+            "max_per_category": int(budget_policy["max_per_category"]),
+            "max_per_predicate": int(budget_policy["max_per_predicate"]),
+            "max_per_slot": int(budget_policy["max_per_slot"]),
             **budget,
         },
         "decisions": decisions,
         "thresholds": {
-            "min_confidence": min_confidence,
-            "min_confidence_user": min_confidence_user,
-            "min_confidence_tool": min_confidence_tool,
-            "min_conflict_severity": min_conflict_severity,
+            "min_confidence": int(thresholds["min_confidence"]),
+            "min_confidence_user": int(thresholds["min_confidence_user"]),
+            "min_confidence_tool": int(thresholds["min_confidence_tool"]),
+            "min_conflict_severity": int(thresholds["min_conflict_severity"]),
         },
+        "policy_version": int(policy.get("version", 0)),
+        "policy_hash": hash_value,
+        "policy_path": path_value,
+        "policy": {"version": int(policy.get("version", 0)), "hash": hash_value, "path": path_value},
         "note": "Automated governance gate only; no human review is required or performed. The gate does not edit raw evidence or confidence_table.json.",
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build automated governance admission decisions for WORLD_STATE inclusion.")
-    parser.add_argument("--min-confidence", type=int, default=90, help="Minimum confidence for accepted stable sources.")
-    parser.add_argument("--min-confidence-user", type=int, default=95, help="Minimum confidence for user-evidence candidates.")
-    parser.add_argument("--min-confidence-tool", type=int, default=95, help="Minimum confidence for deterministic tool-evidence candidates.")
-    parser.add_argument("--min-conflict-severity", type=int, default=60, help="Conflict severity that blocks both sides.")
-    parser.add_argument("--max-allowed", type=int, default=80, help="Maximum items allowed into WORLD_STATE before lower-priority items are kept in distilled only. Use 0 for unlimited.")
-    parser.add_argument("--max-per-category", type=int, default=24, help="Maximum allowed items per cognition category. Use 0 for unlimited.")
-    parser.add_argument("--max-per-predicate", type=int, default=24, help="Maximum allowed items per structured predicate. Use 0 for unlimited.")
-    parser.add_argument("--max-per-slot", type=int, default=1, help="Maximum allowed items per structured governance slot. Use 0 for unlimited.")
+    parser.add_argument("--policy", help="Optional governance policy path. Defaults to .project_cognition/rules/governance_policy.json.")
+    parser.add_argument("--min-confidence", type=int, help="Override policy minimum confidence for accepted stable sources.")
+    parser.add_argument("--min-confidence-user", type=int, help="Override policy minimum confidence for user-evidence candidates.")
+    parser.add_argument("--min-confidence-tool", type=int, help="Override policy minimum confidence for deterministic tool-evidence candidates.")
+    parser.add_argument("--min-conflict-severity", type=int, help="Override policy conflict severity that blocks both sides.")
+    parser.add_argument("--max-allowed", type=int, help="Override policy maximum items allowed into WORLD_STATE. Use 0 for unlimited.")
+    parser.add_argument("--max-per-category", type=int, help="Override policy maximum allowed items per cognition category. Use 0 for unlimited.")
+    parser.add_argument("--max-per-predicate", type=int, help="Override policy maximum allowed items per structured predicate. Use 0 for unlimited.")
+    parser.add_argument("--max-per-slot", type=int, help="Override policy maximum allowed items per structured governance slot. Use 0 for unlimited.")
     args = parser.parse_args()
     result = build_gate(
+        policy_path=args.policy,
         min_confidence=args.min_confidence,
         min_confidence_user=args.min_confidence_user,
         min_confidence_tool=args.min_confidence_tool,
