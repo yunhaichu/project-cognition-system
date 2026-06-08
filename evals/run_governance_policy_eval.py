@@ -77,6 +77,7 @@ def check_governance_policy(project_root: Path) -> dict[str, bool]:
     cognition_root = project_root / ".project_cognition"
     table_path = cognition_root / "distilled" / "confidence_table.json"
     write_json(table_path, {"items": [item("policy_high", "policy_high"), item("policy_low", "policy_low", 95)]})
+    default_policy_validation = run_script(project_root, "validate_governance_policy.py")
     default_gate = run_script(project_root, "auto_governance_gate.py")
     policy = json.loads((cognition_root / "rules" / "governance_policy.json").read_text(encoding="utf-8"))
     policy["version"] = 2
@@ -86,10 +87,12 @@ def check_governance_policy(project_root: Path) -> dict[str, bool]:
     policy["admission_budget"]["max_per_slot"] = 0
     custom_policy_path = cognition_root / "rules" / "eval_policy.json"
     write_json(custom_policy_path, policy)
+    custom_policy_validation = run_script(project_root, "validate_governance_policy.py", ["--policy", ".project_cognition/rules/eval_policy.json"])
     custom_gate = run_script(project_root, "auto_governance_gate.py", ["--policy", ".project_cognition/rules/eval_policy.json"])
     override_gate = run_script(project_root, "auto_governance_gate.py", ["--policy", ".project_cognition/rules/eval_policy.json", "--max-allowed", "2"])
-    validation = run_script(project_root, "validate_state.py")
     return {
+        "default_policy_validates": default_policy_validation.get("ok") is True and default_policy_validation.get("policy_version") == 1,
+        "custom_policy_validates": custom_policy_validation.get("ok") is True and custom_policy_validation.get("policy_version") == 2,
         "default_policy_metadata_present": default_gate.get("policy_version") == 1
         and bool(default_gate.get("policy_hash"))
         and default_gate.get("policy_path") == ".project_cognition/rules/governance_policy.json",
@@ -101,7 +104,6 @@ def check_governance_policy(project_root: Path) -> dict[str, bool]:
         and custom_gate.get("admission_budget", {}).get("max_allowed") == 1,
         "cli_override_still_works": override_gate.get("allowed_count") == 2
         and override_gate.get("admission_budget", {}).get("max_allowed") == 2,
-        "policy_schema_validates": validation.get("validated", {}).get("rules/governance_policy.json", {}).get("errors") == 0,
     }
 
 

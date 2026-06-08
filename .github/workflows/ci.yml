@@ -24,6 +24,9 @@ jobs:
       - name: Validate bundled cognition state
         run: python .project_cognition/scripts/validate_state.py
 
+      - name: Validate governance policy
+        run: python .project_cognition/scripts/validate_governance_policy.py
+
       - name: Build read-only evidence index
         run: python .project_cognition/scripts/index_segments.py
 
