@@ -4,10 +4,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from pathlib import Path
 from typing import Any
 
-from common import CONFIDENCE_TABLE, USER_PROFILE, read_json, write_text
+from common import COGNITION_ROOT, CONFIDENCE_TABLE, USER_PROFILE, read_json, write_json, write_text
 
+
+USER_PROFILE_REPORT = COGNITION_ROOT / "proposals" / "user_profile_update_report.json"
 
 DEFAULT_PRINCIPLES = [
     "用户明确要求忠实执行当前命令，不擅自扩大任务范围。",
@@ -84,38 +87,54 @@ def clean_claim(claim: str) -> str:
     return text
 
 
-def is_profile_candidate(item: dict[str, Any], min_confidence: int) -> bool:
+def candidate_decision(item: dict[str, Any], min_confidence: int) -> tuple[bool, str, str]:
+    claim = clean_claim(str(item.get("claim", "")))
     if item.get("category") != "user_principle":
-        return False
+        return False, "not_user_principle", claim
     if item.get("status") in {"rejected", "superseded"}:
-        return False
+        return False, f"status_{item.get('status')}", claim
     if int(item.get("confidence", 0)) < min_confidence:
-        return False
+        return False, "confidence_below_threshold", claim
     if item.get("conflicts"):
-        return False
+        return False, "has_conflicts", claim
+    if PROJECT_ONLY_KEYWORDS.search(claim):
+        return False, "project_only", claim
     stability = str(item.get("stability", ""))
     evidence_count = len(item.get("evidence", []))
     if stability != "stable" and evidence_count < 2:
-        return False
-    claim = clean_claim(str(item.get("claim", "")))
+        return False, "unstable_single_evidence", claim
     if re.search(r"(我看到|当前提交|这轮|README|GitHub|score_candidates|extract_candidates|evals/|\.py|仓库里)", claim):
-        return False
+        return False, "implementation_or_review_detail", claim
     if not PROFILE_KEYWORDS.search(claim):
-        return False
-    if PROJECT_ONLY_KEYWORDS.search(claim):
-        return False
-    return True
+        return False, "not_profile_keyword", claim
+    return True, "accepted", claim
 
 
-def candidate_principles(min_confidence: int) -> list[str]:
+def evaluated_candidates(min_confidence: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
     table = read_json(CONFIDENCE_TABLE, {"items": []})
-    candidates: list[tuple[int, int, str]] = []
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    rejected_reason_counts: dict[str, int] = {}
     for item in table.get("items", []):
-        if not is_profile_candidate(item, min_confidence):
+        if item.get("category") != "user_principle":
             continue
-        candidates.append((int(item.get("confidence", 0)), len(item.get("evidence", [])), clean_claim(str(item.get("claim", "")))))
-    candidates.sort(key=lambda row: (-row[0], -row[1], row[2]))
-    return [claim for _, _, claim in candidates]
+        ok, reason, claim = candidate_decision(item, min_confidence)
+        entry = {
+            "item_id": str(item.get("id", "")),
+            "claim": claim,
+            "confidence": int(item.get("confidence", 0)),
+            "stability": str(item.get("stability", "")),
+            "evidence": list(item.get("evidence", [])),
+            "reason": reason,
+        }
+        if ok:
+            accepted.append(entry)
+        else:
+            rejected.append(entry)
+            rejected_reason_counts[reason] = rejected_reason_counts.get(reason, 0) + 1
+    accepted.sort(key=lambda row: (-int(row.get("confidence", 0)), -len(row.get("evidence", [])), str(row.get("claim", ""))))
+    rejected.sort(key=lambda row: (str(row.get("reason", "")), str(row.get("item_id", ""))))
+    return accepted, rejected, dict(sorted(rejected_reason_counts.items()))
 
 
 def merge_principles(existing: list[str], generated: list[str], max_principles: int) -> list[str]:
@@ -161,33 +180,46 @@ def render_profile(principles: list[str]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Build or update USER_PROFILE.md from high-confidence cross-project user principles.")
-    parser.add_argument("--min-confidence", type=int, default=95, help="Minimum candidate confidence. Default: 95.")
-    parser.add_argument("--max-principles", type=int, default=8, help="Maximum stable user principles to keep. Default: 8.")
-    args = parser.parse_args()
-
+def build_user_profile_report(min_confidence: int, max_principles: int, *, apply_profile: bool) -> dict[str, Any]:
     existing = load_existing_principles()
-    generated = candidate_principles(args.min_confidence)
-    principles = merge_principles(existing, generated, args.max_principles)
+    accepted, rejected, rejected_reason_counts = evaluated_candidates(min_confidence)
+    generated = [str(row.get("claim", "")) for row in accepted]
+    principles = merge_principles(existing, generated, max_principles)
     before = USER_PROFILE.read_text(encoding="utf-8") if USER_PROFILE.exists() else ""
     after = render_profile(principles)
-    changed = before != after
-    if changed:
+    would_change = before != after
+    applied = bool(apply_profile and would_change)
+    if applied:
         write_text(USER_PROFILE, after)
-    print(
-        json.dumps(
-            {
-                "user_profile": str(USER_PROFILE),
-                "changed": changed,
-                "principles": len(principles),
-                "generated_candidates": len(generated),
-                "min_confidence": args.min_confidence,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
+    report = {
+        "user_profile": str(USER_PROFILE),
+        "report_path": str(USER_PROFILE_REPORT),
+        "applied": applied,
+        "would_change": would_change,
+        "changed": applied,
+        "principles": len(principles),
+        "generated_candidates": accepted,
+        "generated_candidate_count": len(accepted),
+        "rejected_candidates": rejected,
+        "rejected_reason_counts": rejected_reason_counts,
+        "min_confidence": min_confidence,
+        "max_principles": max_principles,
+        "mutates_global_profile": applied,
+        "profile_preview": after,
+    }
+    write_json(USER_PROFILE_REPORT, report)
+    return report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build a USER_PROFILE.md proposal from high-confidence cross-project user principles.")
+    parser.add_argument("--min-confidence", type=int, default=95, help="Minimum candidate confidence. Default: 95.")
+    parser.add_argument("--max-principles", type=int, default=8, help="Maximum stable user principles to keep. Default: 8.")
+    parser.add_argument("--apply-profile", action="store_true", help="Actually write the global USER_PROFILE.md. Default only writes a local proposal/report.")
+    args = parser.parse_args()
+    report = build_user_profile_report(args.min_confidence, args.max_principles, apply_profile=args.apply_profile)
+    summary = {key: value for key, value in report.items() if key != "profile_preview"}
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
